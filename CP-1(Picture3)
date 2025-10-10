@@ -1,0 +1,46 @@
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+import numpy as np
+
+
+np.random.seed(42)
+size = 100
+
+
+# Генерація даних
+hours = np.random.normal(5, 1.5, size)
+attendance = np.clip(hours * 8 + np.random.normal(30, 10, size), 0, 128)
+exam = np.clip(hours * 7 + attendance * 0.3 + np.random.normal(0, 8, size), 0, 100)
+satisfaction = np.clip(exam * 0.1 + np.random.normal(5, 2, size), 0, 10)
+add_courses = np.random.normal(10, 5, size)
+add_courses = np.clip(add_courses, 0, 25)
+
+
+df = pd.DataFrame({
+   'study_hours': hours,
+   'attendance_rate': attendance,
+   'exam_score': exam,
+   'satisfaction': satisfaction,
+   'add_courses': add_courses
+})
+
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+
+# Код для побудови графіків
+sns.regplot(ax=axes[0], data=df, x='study_hours', y='exam_score',
+           scatter_kws={'s': 25, 'alpha': 0.6},
+           line_kws={'color': 'red', 'lw': 2})
+axes[0].set_title('Зв\'язок між годинами навчання та балом на іспиті')
+
+
+sns.regplot(ax=axes[1], data=df, x='attendance_rate', y='exam_score',
+           scatter_kws={'s': 25, 'alpha': 0.6},
+           line_kws={'color': 'red', 'lw': 2})
+axes[1].set_title('Зв\'язок між відвідуваністю та балом на іспиті')
+
+
+plt.tight_layout()
+plt.show()  # Показати графік
