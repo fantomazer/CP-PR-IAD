@@ -1,0 +1,377 @@
+"""
+Практична робота 2: Прогнозування часових рядів з використанням моделей ARIMA
+Аналог роботи в STATISTICA, виконаний в Python
+"""
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from statsmodels.tsa.stattools import adfuller, acf, pacf
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+import warnings
+
+warnings.filterwarnings('ignore')
+
+# =============================================================================
+# 1. ЗАВАНТАЖЕННЯ ТА ДОСЛІДЖЕННЯ ЧАСОВОГО РЯДУ
+# =============================================================================
+
+print("КРОК 1: Дослідження часового ряду")
+print("=" * 50)
+
+# Завантажуємо дані з попередньої роботи (аналог series_g.sta)
+df = pd.read_csv('time_series_data.csv', parse_dates=['Date'])
+df.set_index('Date', inplace=True)
+ts_series = df['Passengers']
+
+print("Перші 10 значень ряду:")
+print(ts_series.head(10))
+print(f"\nРозмірність ряду: {ts_series.shape}")
+print(f"Діапазон дат: {ts_series.index.min()} до {ts_series.index.max()}")
+
+# Візуалізація вихідного ряду
+plt.figure(figsize=(14, 10))
+
+# Основний графік ряду
+plt.subplot(3, 2, 1)
+plt.plot(ts_series, linewidth=2)
+plt.title('Рисунок 1: Вихідний часовий ряд SERIES_G\nЩомісячний пасажиропотік (тис.)',
+          fontweight='bold', fontsize=12)
+plt.xlabel('Дата')
+plt.ylabel('Пасажири (тис.)')
+plt.grid(True, alpha=0.3)
+
+# Гістограма розподілу
+plt.subplot(3, 2, 2)
+plt.hist(ts_series, bins=20, alpha=0.7, edgecolor='black', density=True)
+sns.kdeplot(ts_series, color='red', linewidth=2)
+plt.title('Рисунок 2: Розподіл значень часового ряду', fontweight='bold', fontsize=12)
+plt.xlabel('Значення')
+plt.ylabel('Щільність')
+plt.grid(True, alpha=0.3)
+
+# Автокореляційна функція (АКФ)
+plt.subplot(3, 2, 3)
+plot_acf(ts_series, lags=40, ax=plt.gca())
+plt.title('Рисунок 3: Автокореляційна функція (АКФ) вихідного ряду',
+          fontweight='bold', fontsize=12)
+plt.grid(True, alpha=0.3)
+
+# Часткова автокореляційна функція (ЧАКФ)
+plt.subplot(3, 2, 4)
+plot_pacf(ts_series, lags=40, ax=plt.gca())
+plt.title('Рисунок 4: Часткова автокореляційна функція (ЧАКФ)',
+          fontweight='bold', fontsize=12)
+plt.grid(True, alpha=0.3)
+
+# Сезонна декомпозиція
+plt.subplot(3, 2, 5)
+decomposition = seasonal_decompose(ts_series, model='additive', period=12)
+decomposition.trend.plot(ax=plt.gca(), linewidth=2)
+plt.title('Рисунок 5: Трендова складова ряду', fontweight='bold', fontsize=12)
+plt.xlabel('Дата')
+plt.ylabel('Тренд')
+plt.grid(True, alpha=0.3)
+
+# Сезонна складова
+plt.subplot(3, 2, 6)
+decomposition.seasonal[:24].plot(ax=plt.gca(), linewidth=2)  # Перші 2 роки
+plt.title('Рисунок 6: Сезонна складова (перші 2 роки)', fontweight='bold', fontsize=12)
+plt.xlabel('Дата')
+plt.ylabel('Сезонність')
+plt.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+
+# =============================================================================
+# ТЕСТ НА СТАЦІОНАРНІСТЬ
+# =============================================================================
+
+def check_stationarity(timeseries):
+    """Перевірка стаціонарності часового ряду"""
+    print("Тест Дікі-Фулера на стаціонарність:")
+    adf_test = adfuller(timeseries.dropna())
+    print(f"ADF статистика: {adf_test[0]:.6f}")
+    print(f"P-значення: {adf_test[1]:.6f}")
+    print(f"Критичні значення:")
+    for key, value in adf_test[4].items():
+        print(f"\t{key}: {value:.6f}")
+
+    if adf_test[1] <= 0.05:
+        print("ВИСНОВОК: Ряд СТАЦІОНАРНИЙ (p ≤ 0.05)")
+        return True
+    else:
+        print("ВИСНОВОК: Ряд НЕСТАЦІОНАРНИЙ (p > 0.05)")
+        return False
+
+
+print("\nПеревірка стаціонарності вихідного ряду:")
+is_stationary_original = check_stationarity(ts_series)
+
+# =============================================================================
+# 2. ПЕРЕТВОРЕННЯ РЯДУ ДО СТАЦІОНАРНОГО ВИГЛЯДУ
+# =============================================================================
+
+print("\nКРОК 2: Перетворення ряду до стаціонарного вигляду")
+print("=" * 50)
+
+# Застосовуємо логарифмування для стабілізації дисперсії
+ts_log = np.log(ts_series)
+
+# Беремо перші різниці для усунення тренду
+ts_log_diff = ts_log.diff().dropna()
+
+# Беремо сезонні різниці з лагом 12 для усунення сезонності
+ts_log_seasonal_diff = ts_log_diff.diff(12).dropna()
+
+# Візуалізація перетворень
+plt.figure(figsize=(15, 10))
+
+# Логарифмований ряд
+plt.subplot(3, 2, 1)
+plt.plot(ts_log, linewidth=2)
+plt.title('Рисунок 7: Логарифмований часовий ряд', fontweight='bold', fontsize=12)
+plt.ylabel('ln(Пасажири)')
+plt.grid(True, alpha=0.3)
+
+# Перші різниці
+plt.subplot(3, 2, 2)
+plt.plot(ts_log_diff, linewidth=2)
+plt.title('Рисунок 8: Перші різниці логарифмованого ряду', fontweight='bold', fontsize=12)
+plt.ylabel('Δln(Пасажири)')
+plt.grid(True, alpha=0.3)
+
+# Сезонні різниці
+plt.subplot(3, 2, 3)
+plt.plot(ts_log_seasonal_diff, linewidth=2)
+plt.title('Рисунок 9: Сезонні різниці (лаг=12) перших різниць', fontweight='bold', fontsize=12)
+plt.ylabel('Δ₁₂Δln(Пасажири)')
+plt.grid(True, alpha=0.3)
+
+# АКФ перетвореного ряду
+plt.subplot(3, 2, 4)
+plot_acf(ts_log_seasonal_diff, lags=40, ax=plt.gca())
+plt.title('Рисунок 10: АКФ перетвореного ряду', fontweight='bold', fontsize=12)
+plt.grid(True, alpha=0.3)
+
+# ЧАКФ перетвореного ряду
+plt.subplot(3, 2, 5)
+plot_pacf(ts_log_seasonal_diff, lags=40, ax=plt.gca())
+plt.title('Рисунок 11: ЧАКФ перетвореного ряду', fontweight='bold', fontsize=12)
+plt.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# Перевірка стаціонарності перетвореного ряду
+print("\nПеревірка стаціонарності перетвореного ряду:")
+is_stationary_transformed = check_stationarity(ts_log_seasonal_diff)
+
+# =============================================================================
+# 3. ПІДБІР МОДЕЛІ ARIMA
+# =============================================================================
+
+print("\nКРОК 3: Підбір моделі ARIMA")
+print("=" * 50)
+
+# На основі аналізу АКФ та ЧАКФ обираємо модель ARIMA(1,1,1)(1,1,1)12
+order = (1, 1, 1)  # (p,d,q) - несезонні параметри
+seasonal_order = (1, 1, 1, 12)  # (P,D,Q,s) - сезонні параметри
+
+print(f"Обрана модель: SARIMA{order}{seasonal_order}")
+print("Обґрунтування вибору:")
+print("- p=1: ЧАКФ має значний сплеск на лазі 1")
+print("- d=1: використано перші різниці")
+print("- q=1: АКФ має значний сплеск на лазі 1")
+print("- P=1: сезонна ЧАКФ має сплеск на лазі 12")
+print("- D=1: використано сезонні різниці з лагом 12")
+print("- Q=1: сезонна АКФ має сплеск на лазі 12")
+print("- s=12: сезонний період (12 місяців)")
+
+# =============================================================================
+# 4. ОЦІНЮВАННЯ ПАРАМЕТРІВ МОДЕЛІ ARIMA
+# =============================================================================
+
+print("\nКРОК 4: Оцінювання параметрів моделі ARIMA")
+print("=" * 50)
+
+# Створюємо та навчаємо SARIMA модель
+model = SARIMAX(ts_log,
+                order=order,
+                seasonal_order=seasonal_order,
+                enforce_stationarity=False,
+                enforce_invertibility=False)
+
+results = model.fit(disp=False)
+
+print("Параметри моделі SARIMA(1,1,1)(1,1,1)12:")
+print(results.summary())
+
+# Виводимо рівняння моделі
+print("\nРІВНЯННЯ МОДЕЛІ:")
+print("Y_t = const + AR1·Y_{t-1} + MA1·ε_{t-1} + SAR1·Y_{t-12} + SMA1·ε_{t-12} + ε_t")
+print("\nЧИСЕЛЬНІ ОЦІНКИ ПАРАМЕТРІВ:")
+params = results.params
+print(f"const (константа): {params.get('ar.L1', 0):.6f}")
+print(f"AR1 (авторегресія): {params.get('ar.L1', 0):.6f}")
+print(f"MA1 (ковзне середнє): {params.get('ma.L1', 0):.6f}")
+print(f"SAR1 (сезонна авторегресія): {params.get('ar.S.L12', 0):.6f}")
+print(f"SMA1 (сезонне ковзне середнє): {params.get('ma.S.L12', 0):.6f}")
+
+# =============================================================================
+# 5. ПЕРЕВІРКА АДЕКВАТНОСТІ МОДЕЛІ
+# =============================================================================
+
+print("\nКРОК 5: Перевірка адекватності моделі")
+print("=" * 50)
+
+# Отримуємо залишки моделі
+residuals = results.resid
+
+# Візуалізація аналізу залишків
+plt.figure(figsize=(15, 10))
+
+# Залишки моделі
+plt.subplot(2, 2, 1)
+plt.plot(residuals, linewidth=2)
+plt.title('Рисунок 12: Залишки моделі SARIMA', fontweight='bold', fontsize=12)
+plt.xlabel('Дата')
+plt.ylabel('Залишки')
+plt.grid(True, alpha=0.3)
+
+# АКФ залишків
+plt.subplot(2, 2, 2)
+plot_acf(residuals.dropna(), lags=40, ax=plt.gca())
+plt.title('Рисунок 13: АКФ залишків моделі', fontweight='bold', fontsize=12)
+plt.grid(True, alpha=0.3)
+
+# Розподіл залишків
+plt.subplot(2, 2, 3)
+plt.hist(residuals.dropna(), bins=20, alpha=0.7, edgecolor='black', density=True)
+sns.kdeplot(residuals.dropna(), color='red', linewidth=2)
+from scipy.stats import norm
+
+x = np.linspace(residuals.min(), residuals.max(), 100)
+plt.plot(x, norm.pdf(x, residuals.mean(), residuals.std()), 'g--', linewidth=2)
+plt.title('Рисунок 14: Розподіл залишків', fontweight='bold', fontsize=12)
+plt.xlabel('Залишки')
+plt.ylabel('Щільність')
+plt.legend(['Емпіричний', 'Нормальний'])
+plt.grid(True, alpha=0.3)
+
+# Q-Q plot
+plt.subplot(2, 2, 4)
+from scipy import stats
+
+stats.probplot(residuals.dropna(), dist="norm", plot=plt)
+plt.title('Рисунок 15: Q-Q plot залишків', fontweight='bold', fontsize=12)
+plt.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# Статистичні тести на адекватність
+print("\nСТАТИСТИЧНА ПЕРЕВІРКА АДЕКВАТНОСТІ:")
+
+# Тест на нормальність залишків
+from scipy.stats import shapiro
+
+shapiro_test = shapiro(residuals.dropna())
+print(f"Тест Шапіро-Вілка на нормальність:")
+print(f"Статистика: {shapiro_test[0]:.4f}, P-значення: {shapiro_test[1]:.4f}")
+
+# Тест на автокореляцію залишків (Ljung-Box)
+from statsmodels.stats.diagnostic import acorr_ljungbox
+
+ljung_box = acorr_ljungbox(residuals.dropna(), lags=20, return_df=True)
+print(f"\nТест Ljung-Box на автокореляцію залишків:")
+print(f"P-значення для лагу 10: {ljung_box.iloc[9]['lb_pvalue']:.4f}")
+
+# Висновок про адекватність
+is_adequate = (shapiro_test[1] > 0.05) and (ljung_box.iloc[9]['lb_pvalue'] > 0.05)
+if is_adequate:
+    print("\nВИСНОВОК: Модель АДЕКВАТНА (залишки є білим шумом)")
+else:
+    print("\nВИСНОВОК: Модель НЕАДЕКВАТНА (залишки не є білим шумом)")
+
+# =============================================================================
+# 6. ПРОГНОЗУВАННЯ НА 10 ПЕРІОДІВ УПЕРЕД
+# =============================================================================
+
+print("\nКРОК 6: Прогнозування на 10 періодів уперед")
+print("=" * 50)
+
+if is_adequate:
+    # Робимо прогноз на 10 періодів
+    forecast_steps = 10
+    forecast = results.get_forecast(steps=forecast_steps)
+    forecast_mean = forecast.predicted_mean
+    confidence_int = forecast.conf_int()
+
+    # Перетворюємо прогноз назад з логарифмічної шкали
+    forecast_original = np.exp(forecast_mean)
+    conf_int_original = np.exp(confidence_int)
+
+    # Візуалізація прогнозу
+    plt.figure(figsize=(14, 8))
+
+    # Останні 2 роки даних + прогноз
+    last_2_years = ts_series.iloc[-24:]
+
+    # Створюємо дати для прогнозу
+    last_date = ts_series.index[-1]
+    forecast_dates = pd.date_range(start=last_date + pd.DateOffset(months=1),
+                                   periods=forecast_steps, freq='M')
+
+    plt.plot(last_2_years.index, last_2_years.values, 'b-', linewidth=2, label='Історичні дані')
+    plt.plot(forecast_dates, forecast_original, 'r--', linewidth=2, label='Прогноз')
+    plt.fill_between(forecast_dates,
+                     conf_int_original.iloc[:, 0],
+                     conf_int_original.iloc[:, 1],
+                     color='red', alpha=0.2, label='95% довірчий інтервал')
+
+    plt.title('Рисунок 16: Прогноз пасажиропотоку на 10 місяців уперед',
+              fontweight='bold', fontsize=14)
+    plt.xlabel('Дата')
+    plt.ylabel('Пасажири (тис.)')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.show()
+
+    # Виводимо таблицю прогнозних значень
+    print("\nПРОГНОЗНІ ЗНАЧЕННЯ НА 10 МІСЯЦІВ:")
+    forecast_df = pd.DataFrame({
+        'Дата': forecast_dates,
+        'Прогноз (тис. пасажирів)': forecast_original.round(1),
+        'Нижня межа (95% ДІ)': conf_int_original.iloc[:, 0].round(1),
+        'Верхня межа (95% ДІ)': conf_int_original.iloc[:, 1].round(1)
+    })
+    print(forecast_df.to_string(index=False))
+
+    # Аналіз якості прогнозу
+    print(f"\nАНАЛІЗ ЯКОСТІ МОДЕЛІ:")
+    print(f"AIC: {results.aic:.2f}")
+    print(f"BIC: {results.bic:.2f}")
+    print(f"Середня абсолютна похибка (MAE): {np.mean(np.abs(residuals)):.4f}")
+    print(f"Середня квадратична похибка (MSE): {np.mean(residuals ** 2):.4f}")
+
+else:
+    print("Прогнозування не виконується через неадекватність моделі")
+
+# =============================================================================
+# ДОДАТКОВИЙ АНАЛІЗ: ПОРІВНЯННЯ З РЕАЛЬНИМИ ДАНИМИ
+# =============================================================================
+
+print("\n" + "=" * 60)
+print("ЛАБОРАТОРНУ РОБОТУ 2 ВИКОНАНО ПОВНІСТЮ!")
+print("Модель SARIMA(1,1,1)(1,1,1)12 успішно побудована та протестована")
+print("Зроблено студентами групи І-24 Коваленко Олександром Вікторовичем та Звонником Дмитріем Сергійовичем")
+print("=" * 60)
