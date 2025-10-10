@@ -1,0 +1,211 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
+import time
+from mpl_toolkits.mplot3d import Axes3D
+
+
+# Визначення функцій для обох варіантів
+def objective_v1(x):
+    """Варіант 1: y = (1 - x₁)² + (2 - x₂)²"""
+    return (1 - x[0]) ** 2 + (2 - x[1]) ** 2
+
+
+def objective_v2(x):
+    """Варіант 2: y = (5 - 2x₁)⁸ + (6 - 3x₂)⁴"""
+    return (5 - 2 * x[0]) ** 8 + (6 - 3 * x[1]) ** 4
+
+
+# Початкові точки
+x0_v1 = np.array([0.0, 0.0])
+x0_v2 = np.array([3.0, 2.0])
+
+# Аналітичні розв'язки
+analytical_v1 = {'x_opt': np.array([1.0, 2.0]), 'f_opt': 0.0}
+analytical_v2 = {'x_opt': np.array([2.5, 2.0]), 'f_opt': 0.0}  # (5-2x₁)=0 → x₁=2.5, (6-3x₂)=0 → x₂=2.0
+
+
+def compare_optimization_methods(objective_func, x0, variant_name, analytical_sol):
+    """Порівняльний аналіз методів оптимізації"""
+
+    methods = ['BFGS', 'CG', 'Nelder-Mead', 'Powell', 'L-BFGS-B']
+    results = {}
+
+    print(f"\n{'=' * 60}")
+    print(f"Варіант {variant_name}")
+    print(f"{'=' * 60}")
+
+    for method in methods:
+        start_time = time.time()
+        result = minimize(objective_func, x0, method=method,
+                          options={'disp': False, 'maxiter': 1000})
+        end_time = time.time()
+
+        results[method] = {
+            'x_opt': result.x,
+            'f_opt': result.fun,
+            'iterations': result.nit,
+            'time': end_time - start_time,
+            'success': result.success,
+            'error': np.linalg.norm(result.x - analytical_sol['x_opt'])
+        }
+
+    # Вивід результатів
+    print(f"\nПорівняння методів оптимізації:")
+    print(f"{'Метод':<12} {'x_opt':<25} {'f(x_opt)':<12} {'Ітерації':<10} {'Час (с)':<10} {'Похибка':<10}")
+    print("-" * 80)
+
+    for method, res in results.items():
+        print(f"{method:<12} {str(np.round(res['x_opt'], 4)):<25} {res['f_opt']:<12.2e} "
+              f"{res['iterations']:<10} {res['time']:<10.4f} {res['error']:<10.6f}")
+
+    return results
+
+
+def plot_comparison(objective_func, x0, analytical_sol, variant_name, bounds):
+    """Побудова графіків для порівняння"""
+
+    # Створення сітки для графіка
+    x1 = np.linspace(bounds[0], bounds[1], 100)
+    x2 = np.linspace(bounds[2], bounds[3], 100)
+    X1, X2 = np.meshgrid(x1, x2)
+
+    # Обчислення значень функції
+    Z = np.zeros_like(X1)
+    for i in range(X1.shape[0]):
+        for j in range(X1.shape[1]):
+            Z[i, j] = objective_func([X1[i, j], X2[i, j]])
+
+    # Оптимізація різними методами
+    methods = ['BFGS', 'CG', 'Nelder-Mead', 'Powell']
+    colors = ['blue', 'orange', 'purple', 'brown']
+
+    fig = plt.figure(figsize=(20, 8))
+
+    # 2D контурний графік
+    plt.subplot(1, 3, 1)
+    contour = plt.contour(X1, X2, Z, levels=20)
+    plt.clabel(contour, inline=1, fontsize=8)
+    plt.plot(x0[0], x0[1], 'ro', markersize=10, label='Початкова точка', markeredgewidth=2)
+    plt.plot(analytical_sol['x_opt'][0], analytical_sol['x_opt'][1], 'g*',
+             markersize=15, label='Аналітичний мінімум', markeredgewidth=2)
+
+    # Додавання точок з різних методів
+    for i, method in enumerate(methods):
+        result = minimize(objective_func, x0, method=method)
+        plt.plot(result.x[0], result.x[1], 's', color=colors[i],
+                 markersize=8, label=f'{method}', markeredgewidth=2)
+
+    plt.xlabel('x₁')
+    plt.ylabel('x₂')
+    plt.title(f'Варіант {variant_name}: Контурний графік')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.axis('equal')
+
+    # 3D поверхня
+    ax = fig.add_subplot(1, 3, 2, projection='3d')
+    surf = ax.plot_surface(X1, X2, Z, cmap='viridis', alpha=0.7)
+
+    # Додавання точок
+    ax.scatter(x0[0], x0[1], objective_func(x0), color='red', s=100,
+               label='Початкова точка', edgecolors='black')
+    ax.scatter(analytical_sol['x_opt'][0], analytical_sol['x_opt'][1],
+               analytical_sol['f_opt'], color='green', s=100,
+               label='Аналітичний мінімум', edgecolors='black')
+
+    for i, method in enumerate(methods):
+        result = minimize(objective_func, x0, method=method)
+        ax.scatter(result.x[0], result.x[1], result.fun,
+                   color=colors[i], s=80, label=method, edgecolors='black')
+
+    ax.set_xlabel('x₁')
+    ax.set_ylabel('x₂')
+    ax.set_zlabel('f(x)')
+    ax.set_title(f'Варіант {variant_name}: 3D графік')
+    ax.legend()
+
+    # Графік збіжності
+    plt.subplot(1, 3, 3)
+
+    for i, method in enumerate(methods):
+        # Трасування збіжності
+        history = {'x': [], 'f': []}
+
+        def callback(x):
+            history['x'].append(x.copy())
+            history['f'].append(objective_func(x))
+
+        minimize(objective_func, x0, method=method, callback=callback)
+
+        plt.semilogy(history['f'], color=colors[i], label=method, linewidth=2)
+
+    plt.xlabel('Ітерація')
+    plt.ylabel('f(x)')
+    plt.title(f'Варіант {variant_name}: Збіжність методів')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.show()
+
+
+# Аналіз для варіанту 1
+print("АНАЛІЗ ВАРІАНТУ 1")
+results_v1 = compare_optimization_methods(objective_v1, x0_v1, "1", analytical_v1)
+plot_comparison(objective_v1, x0_v1, analytical_v1, "1", [-1, 3, -1, 4])
+
+# Аналіз для варіанту 2
+print("\n" + "=" * 80)
+print("АНАЛІЗ ВАРІАНТУ 2")
+results_v2 = compare_optimization_methods(objective_v2, x0_v2, "2", analytical_v2)
+plot_comparison(objective_v2, x0_v2, analytical_v2, "2", [2, 3, 1.5, 2.5])
+
+
+# Порівняльна таблиця
+def create_comparison_table(results_v1, results_v2):
+    """Створення порівняльної таблиці"""
+
+    print("\n" + "=" * 100)
+    print("ПОРІВНЯЛЬНА ТАБЛИЦЯ: ВАРІАНТ 1 vs ВАРІАНТ 2")
+    print("=" * 100)
+
+    print(f"{'Метод':<12} {'Час V1 (с)':<12} {'Час V2 (с)':<12} {'Ітер. V1':<10} {'Ітер. V2':<10} "
+          f"{'Похибка V1':<12} {'Похибка V2':<12}")
+    print("-" * 100)
+
+    methods = ['BFGS', 'CG', 'Nelder-Mead', 'Powell']
+
+    for method in methods:
+        v1 = results_v1[method]
+        v2 = results_v2[method]
+
+        print(f"{method:<12} {v1['time']:<12.4f} {v2['time']:<12.4f} "
+              f"{v1['iterations']:<10} {v2['iterations']:<10} "
+              f"{v1['error']:<12.6f} {v2['error']:<12.6f}")
+
+
+create_comparison_table(results_v1, results_v2)
+
+# Аналіз характеристик функцій
+print("\n" + "=" * 60)
+print("АНАЛІЗ ХАРАКТЕРИСТИК ФУНКЦІЙ")
+print("=" * 60)
+
+
+def analyze_function(objective_func, point, name):
+    """Аналіз властивостей функції в точці"""
+    from scipy.optimize import approx_fprime
+
+    grad = approx_fprime(point, objective_func, epsilon=1e-6)
+    hessian = approx_fprime(point, lambda x: approx_fprime(x, objective_func, 1e-6), 1e-6)
+    cond_number = np.linalg.cond(hessian)
+
+    print(f"\n{name}:")
+    print(f"  Градієнт у початковій точці: {grad}")
+    print(f"  Число обумовленості гессіана: {cond_number:.2e}")
+    print(f"  Значення функції: {objective_func(point):.2e}")
+
+
+analyze_function(objective_v1, x0_v1, "Варіант 1")
+analyze_function(objective_v2, x0_v2, "Варіант 2")
