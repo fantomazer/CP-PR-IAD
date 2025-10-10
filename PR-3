@@ -1,0 +1,428 @@
+"""
+Практична робота 3: Створення та настройка експертної системи з використанням Fuzzy Logic
+Аналог роботи в MATLAB Fuzzy Logic Toolbox, виконаний в Python з використанням scikit-fuzzy
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+import skfuzzy as fuzz
+from skfuzzy import control as ctrl
+import warnings
+
+warnings.filterwarnings('ignore')
+
+print("ПАКТИЧНА РОБОТА 3")
+print("Створення та настройка експертної системи з використанням Fuzzy Logic")
+print("=" * 70)
+
+# =============================================================================
+# 1. СТВОРЕННЯ НЕЧІТКОЇ СИСТЕМИ ВИВЕДЕННЯ (FIS)
+# =============================================================================
+
+print("\nКРОК 1: Створення нечіткої системи виведення")
+print("=" * 50)
+
+# Створюємо антецеденти (вхідні змінні) та консеквенти (вихідні змінні)
+print("Створення вхідних та вихідних змінних...")
+
+# Вхідна змінна: температура води
+temperature = ctrl.Antecedent(np.arange(10, 81, 1), 'temperature')
+# Вхідна змінна: напір води
+pressure = ctrl.Antecedent(np.arange(0, 1.01, 0.01), 'pressure')
+# Вихідна змінна: кут повороту крана
+valve_angle = ctrl.Consequent(np.arange(-10, 11, 1), 'valve_angle')
+
+print("✓ Створено змінні:")
+print(f"  - temperature: діапазон {temperature.universe[0]}-{temperature.universe[-1]}")
+print(f"  - pressure: діапазон {pressure.universe[0]}-{pressure.universe[-1]}")
+print(f"  - valve_angle: діапазон {valve_angle.universe[0]}-{valve_angle.universe[-1]}")
+
+# =============================================================================
+# 2. ВИЗНАЧЕННЯ ФУНКЦІЙ НАЛЕЖНОСТІ
+# =============================================================================
+
+print("\nКРОК 2: Визначення функцій належності")
+print("=" * 50)
+
+# Функції належності для температури
+temperature['cold'] = fuzz.trimf(temperature.universe, [10, 20, 35])
+temperature['mid'] = fuzz.trimf(temperature.universe, [30, 35, 40])
+temperature['hot'] = fuzz.trimf(temperature.universe, [40, 50, 80])
+
+# Функції належності для напору
+pressure['small'] = fuzz.trimf(pressure.universe, [0, 0.1, 0.3])
+pressure['norm'] = fuzz.trimf(pressure.universe, [0.25, 0.5, 0.75])
+pressure['big'] = fuzz.trimf(pressure.universe, [0.6, 0.8, 1])
+
+# Функції належності для кута повороту крана
+valve_angle['close_q'] = fuzz.trimf(valve_angle.universe, [-10, -7, -5])
+valve_angle['close_s'] = fuzz.trimf(valve_angle.universe, [-6, -3, -1])
+valve_angle['norm'] = fuzz.trimf(valve_angle.universe, [-2, 0, 2])
+valve_angle['open_s'] = fuzz.trimf(valve_angle.universe, [1, 3, 6])
+valve_angle['open_q'] = fuzz.trimf(valve_angle.universe, [5, 7, 10])
+
+print("✓ Визначено функції належності:")
+print("  - temperature: cold, mid, hot")
+print("  - pressure: small, norm, big")
+print("  - valve_angle: close_q, close_s, norm, open_s, open_q")
+
+# =============================================================================
+# 3. ВІЗУАЛІЗАЦІЯ ПОЧАТКОВИХ ФУНКЦІЙ НАЛЕЖНОСТІ
+# =============================================================================
+
+print("\nКРОК 3: Візуалізація початкових функцій належності")
+print("=" * 50)
+
+fig, axes = plt.subplots(3, 1, figsize=(12, 12))
+
+# Температура
+axes[0].plot(temperature.universe, temperature['cold'].mf, 'b', linewidth=1.5, label='cold')
+axes[0].plot(temperature.universe, temperature['mid'].mf, 'g', linewidth=1.5, label='mid')
+axes[0].plot(temperature.universe, temperature['hot'].mf, 'r', linewidth=1.5, label='hot')
+axes[0].set_title('Рисунок 1: Функції належності для температури (початкові)', fontweight='bold')
+axes[0].set_ylabel('Ступінь належності')
+axes[0].legend()
+axes[0].grid(True, alpha=0.3)
+
+# Тиск
+axes[1].plot(pressure.universe, pressure['small'].mf, 'blue', linewidth=1.5, label='small')
+axes[1].plot(pressure.universe, pressure['norm'].mf, 'green', linewidth=1.5, label='norm')
+axes[1].plot(pressure.universe, pressure['big'].mf, 'red', linewidth=1.5, label='big')
+axes[1].set_title('Рисунок 2: Функції належності для напору (початкові)', fontweight='bold')
+axes[1].set_ylabel('Ступінь належності')
+axes[1].legend()
+axes[1].grid(True, alpha=0.3)
+
+# Кут повороту
+axes[2].plot(valve_angle.universe, valve_angle['close_q'].mf, 'darkred', linewidth=1.5, label='close_q')
+axes[2].plot(valve_angle.universe, valve_angle['close_s'].mf, 'red', linewidth=1.5, label='close_s')
+axes[2].plot(valve_angle.universe, valve_angle['norm'].mf, 'gray', linewidth=1.5, label='norm')
+axes[2].plot(valve_angle.universe, valve_angle['open_s'].mf, 'lightgreen', linewidth=1.5, label='open_s')
+axes[2].plot(valve_angle.universe, valve_angle['open_q'].mf, 'green', linewidth=1.5, label='open_q')
+axes[2].set_title('Рисунок 3: Функції належності для кута повороту (початкові)', fontweight='bold')
+axes[2].set_xlabel('Кут повороту')
+axes[2].set_ylabel('Ступінь належності')
+axes[2].legend()
+axes[2].grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# =============================================================================
+# 4. СТВОРЕННЯ БАЗИ ЗНАНЬ (ПРАВИЛ)
+# =============================================================================
+
+print("\nКРОК 4: Створення бази знань (правил)")
+print("=" * 50)
+
+# Створюємо правила для експертної системи
+rule1 = ctrl.Rule(temperature['cold'] & pressure['small'], valve_angle['open_q'])
+rule2 = ctrl.Rule(temperature['cold'] & pressure['norm'], valve_angle['open_s'])
+rule3 = ctrl.Rule(temperature['cold'] & pressure['big'], valve_angle['norm'])
+
+rule4 = ctrl.Rule(temperature['mid'] & pressure['small'], valve_angle['open_s'])
+rule5 = ctrl.Rule(temperature['mid'] & pressure['norm'], valve_angle['norm'])
+rule6 = ctrl.Rule(temperature['mid'] & pressure['big'], valve_angle['close_s'])
+
+rule7 = ctrl.Rule(temperature['hot'] & pressure['small'], valve_angle['norm'])
+rule8 = ctrl.Rule(temperature['hot'] & pressure['norm'], valve_angle['close_s'])
+rule9 = ctrl.Rule(temperature['hot'] & pressure['big'], valve_angle['close_q'])
+
+print("✓ Створено правила:")
+rules = [rule1, rule2, rule3, rule4, rule5, rule6, rule7, rule8, rule9]
+for i, rule in enumerate(rules, 1):
+    print(f"  Правило {i}: {rule}")
+
+# =============================================================================
+# 5. СТВОРЕННЯ СИСТЕМИ КЕРУВАННЯ ТА СИМУЛЯЦІЯ
+# =============================================================================
+
+print("\nКРОК 5: Створення системи керування та симуляція")
+print("=" * 50)
+
+# Створюємо систему керування
+valve_ctrl = ctrl.ControlSystem(rules)
+valve_simulation = ctrl.ControlSystemSimulation(valve_ctrl)
+
+# Тестуємо систему з різними вхідними значеннями
+test_cases = [
+    (15, 0.2),  # холодна вода, малий напір
+    (20, 0.5),  # холодна вода, нормальний напір
+    (25, 0.8),  # холодна вода, великий напір
+    (35, 0.2),  # середня температура, малий напір
+    (37, 0.5),  # середня температура, нормальний напір
+    (38, 0.8),  # середня температура, великий напір
+    (45, 0.2),  # гаряча вода, малий напір
+    (55, 0.5),  # гаряча вода, нормальний напір
+    (70, 0.9)  # гаряча вода, великий напір
+]
+
+print("\nРезультати тестування системи:")
+print("Темп | Напір | Кут повороту | Дія")
+print("-" * 45)
+
+for temp, press in test_cases:
+    valve_simulation.input['temperature'] = temp
+    valve_simulation.input['pressure'] = press
+    valve_simulation.compute()
+    angle = valve_simulation.output['valve_angle']
+
+    if angle > 5:
+        action = "ВІДКРИТИ ШВИДКО"
+    elif angle > 1:
+        action = "ВІДКРИТИ ПОВІЛЬНО"
+    elif angle < -5:
+        action = "ЗАКРИТИ ШВИДКО"
+    elif angle < -1:
+        action = "ЗАКРИТИ ПОВІЛЬНО"
+    else:
+        action = "НЕ ЗМІНЮВАТИ"
+
+    print(f"{temp:4.1f} | {press:5.2f} | {angle:12.2f} | {action}")
+
+# =============================================================================
+# 6. ВІЗУАЛІЗАЦІЯ РОБОТИ СИСТЕМИ
+# =============================================================================
+
+print("\nКРОК 6: Візуалізація роботи системи")
+print("=" * 50)
+
+# Візуалізація поверхні відгуку
+fig = plt.figure(figsize=(15, 5))
+
+# Поверхня відгуку
+ax1 = fig.add_subplot(131, projection='3d')
+x = np.arange(10, 80, 2)
+y = np.arange(0, 1, 0.05)
+X, Y = np.meshgrid(x, y)
+Z = np.zeros_like(X, dtype=float)
+
+
+for i in range(len(x)):
+    for j in range(len(y)):
+        sim = ctrl.ControlSystemSimulation(valve_ctrl)
+        sim.input['temperature'] = x[i]
+        sim.input['pressure'] = y[j]
+        sim.compute()
+
+        if 'valve_angle' in sim.output:
+            Z[j, i] = sim.output['valve_angle']
+        else:
+            # Якщо немає результату — ставимо NaN або 0
+            Z[j, i] = np.nan
+
+
+surf = ax1.plot_surface(X, Y, Z, rstride=1, cstride=1, cmap='viridis', alpha=0.7)
+ax1.set_xlabel('Температура (°C)')
+ax1.set_ylabel('Напір')
+ax1.set_zlabel('Кут повороту')
+ax1.set_title('Рисунок 4: Поверхня відгуку системи', fontweight='bold')
+
+# Приклад роботи правил для конкретного випадку
+ax2 = fig.add_subplot(132)
+temp_test = 35
+press_test = 0.3
+
+valve_simulation.input['temperature'] = temp_test
+valve_simulation.input['pressure'] = press_test
+valve_simulation.compute()
+
+# Візуалізація активації правил
+valve_angle.view(sim=valve_simulation, ax=ax2)
+ax2.set_title(f'Рисунок 5: Робота системи\n(T={temp_test}°C, P={press_test})', fontweight='bold')
+
+# Діаграма активації правил
+ax3 = fig.add_subplot(133)
+activation_values = []
+
+for rule in rules:
+    temp_label = None
+    press_label = None
+
+    for term in getattr(rule.antecedent_terms, 'values', lambda: rule.antecedent_terms)():
+        label = getattr(term, "label", None)
+        if label in temperature.terms:
+            temp_label = label
+        elif label in pressure.terms:
+            press_label = label
+
+    if temp_label and press_label:
+        μT = fuzz.interp_membership(temperature.universe, temperature[temp_label].mf, temp_test)
+        μP = fuzz.interp_membership(pressure.universe, pressure[press_label].mf, press_test)
+        activation = min(μT, μP)
+    else:
+        activation = 0
+
+    activation_values.append(activation)
+if 'valve_angle' in valve_simulation.output:
+    ax2.axvline(valve_simulation.output['valve_angle'], color='k', linewidth=2)
+
+
+
+
+ax3.bar(range(1, 10), activation_values, color='skyblue', alpha=0.7)
+ax3.set_xlabel('Номер правила')
+ax3.set_ylabel('Ступінь активації')
+ax3.set_title('Рисунок 6: Активація правил', fontweight='bold')
+ax3.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# =============================================================================
+# 7. ОПТИМІЗАЦІЯ СИСТЕМИ
+# =============================================================================
+
+print("\nКРОК 7: Оптимізація системи")
+print("=" * 50)
+
+# Створюємо оптимізовані функції належності (гауссові для більш плавної роботи)
+temperature_opt = ctrl.Antecedent(np.arange(10, 81, 1), 'temperature_opt')
+pressure_opt = ctrl.Antecedent(np.arange(0, 1.01, 0.01), 'pressure_opt')
+valve_angle_opt = ctrl.Consequent(np.arange(-10, 11, 1), 'valve_angle_opt')
+
+# Оптимізовані функції належності (гауссові)
+temperature_opt['cold'] = fuzz.gaussmf(temperature_opt.universe, 20, 8)
+temperature_opt['mid'] = fuzz.gaussmf(temperature_opt.universe, 35, 5)
+temperature_opt['hot'] = fuzz.gaussmf(temperature_opt.universe, 55, 10)
+
+pressure_opt['small'] = fuzz.gaussmf(pressure_opt.universe, 0.15, 0.1)
+pressure_opt['norm'] = fuzz.gaussmf(pressure_opt.universe, 0.5, 0.15)
+pressure_opt['big'] = fuzz.gaussmf(pressure_opt.universe, 0.8, 0.1)
+
+valve_angle_opt['close_q'] = fuzz.gaussmf(valve_angle_opt.universe, -7, 1.5)
+valve_angle_opt['close_s'] = fuzz.gaussmf(valve_angle_opt.universe, -3, 1.2)
+valve_angle_opt['norm'] = fuzz.gaussmf(valve_angle_opt.universe, 0, 1)
+valve_angle_opt['open_s'] = fuzz.gaussmf(valve_angle_opt.universe, 3, 1.2)
+valve_angle_opt['open_q'] = fuzz.gaussmf(valve_angle_opt.universe, 7, 1.5)
+
+print("✓ Створено оптимізовані функції належності (гауссові)")
+
+# Додаємо додаткові правила для покращення роботи
+rule10 = ctrl.Rule(temperature_opt['cold'] & pressure_opt['small'], valve_angle_opt['open_q'])
+rule11 = ctrl.Rule(temperature_opt['cold'] & pressure_opt['norm'], valve_angle_opt['open_s'])
+rule12 = ctrl.Rule(temperature_opt['cold'] & pressure_opt['big'], valve_angle_opt['norm'])
+
+rule13 = ctrl.Rule(temperature_opt['mid'] & pressure_opt['small'], valve_angle_opt['open_s'])
+rule14 = ctrl.Rule(temperature_opt['mid'] & pressure_opt['norm'], valve_angle_opt['norm'])
+rule15 = ctrl.Rule(temperature_opt['mid'] & pressure_opt['big'], valve_angle_opt['close_s'])
+
+rule16 = ctrl.Rule(temperature_opt['hot'] & pressure_opt['small'], valve_angle_opt['norm'])
+rule17 = ctrl.Rule(temperature_opt['hot'] & pressure_opt['norm'], valve_angle_opt['close_s'])
+rule18 = ctrl.Rule(temperature_opt['hot'] & pressure_opt['big'], valve_angle_opt['close_q'])
+
+# Додаткові правила для проміжних станів
+rule19 = ctrl.Rule(temperature_opt['cold'] | pressure_opt['small'], valve_angle_opt['open_s'])
+rule20 = ctrl.Rule(temperature_opt['hot'] | pressure_opt['big'], valve_angle_opt['close_s'])
+
+rules_opt = [rule10, rule11, rule12, rule13, rule14, rule15, rule16, rule17, rule18, rule19, rule20]
+
+# =============================================================================
+# 8. ПОРІВНЯННЯ РЕЗУЛЬТАТІВ
+# =============================================================================
+
+print("\nКРОК 8: Порівняння результатів")
+print("=" * 50)
+
+# Створюємо оптимізовану систему
+valve_ctrl_opt = ctrl.ControlSystem(rules_opt)
+valve_simulation_opt = ctrl.ControlSystemSimulation(valve_ctrl_opt)
+
+# Порівнюємо роботу оригінальної та оптимізованої систем
+comparison_cases = [(20, 0.3), (35, 0.5), (50, 0.7)]
+
+print("\nПорівняння оригінальної та оптимізованої систем:")
+print("Темп | Напір | Оригінал | Оптимізована | Поліпшення")
+print("-" * 60)
+
+for temp, press in comparison_cases:
+    # Оригінальна система
+    valve_simulation.input['temperature'] = temp
+    valve_simulation.input['pressure'] = press
+    valve_simulation.compute()
+    original = valve_simulation.output['valve_angle']
+
+    # Оптимізована система
+    valve_simulation_opt.input['temperature_opt'] = temp
+    valve_simulation_opt.input['pressure_opt'] = press
+    valve_simulation_opt.compute()
+    optimized = valve_simulation_opt.output['valve_angle_opt']
+
+    improvement = abs(optimized - original)
+
+    print(f"{temp:4.1f} | {press:5.2f} | {original:8.2f} | {optimized:12.2f} | {improvement:10.2f}")
+
+# =============================================================================
+# 9. ВІЗУАЛІЗАЦІЯ ОПТИМІЗОВАНИХ ФУНКЦІЙ НАЛЕЖНОСТІ
+# =============================================================================
+
+print("\nКРОК 9: Візуалізація оптимізованих функцій належності")
+print("=" * 50)
+
+fig, axes = plt.subplots(3, 1, figsize=(12, 12))
+
+# Оптимізовані функції належності для температури
+axes[0].plot(temperature_opt.universe, temperature_opt['cold'].mf, 'b', linewidth=1.5, label='cold')
+axes[0].plot(temperature_opt.universe, temperature_opt['mid'].mf, 'g', linewidth=1.5, label='mid')
+axes[0].plot(temperature_opt.universe, temperature_opt['hot'].mf, 'r', linewidth=1.5, label='hot')
+axes[0].set_title('Рисунок 7: Оптимізовані функції належності для температури (гауссові)', fontweight='bold')
+axes[0].set_ylabel('Ступінь належності')
+axes[0].legend()
+axes[0].grid(True, alpha=0.3)
+
+# Оптимізовані функції належності для тиску
+axes[1].plot(pressure_opt.universe, pressure_opt['small'].mf, 'blue', linewidth=1.5, label='small')
+axes[1].plot(pressure_opt.universe, pressure_opt['norm'].mf, 'green', linewidth=1.5, label='norm')
+axes[1].plot(pressure_opt.universe, pressure_opt['big'].mf, 'red', linewidth=1.5, label='big')
+axes[1].set_title('Рисунок 8: Оптимізовані функції належності для напору (гауссові)', fontweight='bold')
+axes[1].set_ylabel('Ступінь належності')
+axes[1].legend()
+axes[1].grid(True, alpha=0.3)
+
+# Оптимізовані функції належності для кута повороту
+axes[2].plot(valve_angle_opt.universe, valve_angle_opt['close_q'].mf, 'darkred', linewidth=1.5, label='close_q')
+axes[2].plot(valve_angle_opt.universe, valve_angle_opt['close_s'].mf, 'red', linewidth=1.5, label='close_s')
+axes[2].plot(valve_angle_opt.universe, valve_angle_opt['norm'].mf, 'gray', linewidth=1.5, label='norm')
+axes[2].plot(valve_angle_opt.universe, valve_angle_opt['open_s'].mf, 'lightgreen', linewidth=1.5, label='open_s')
+axes[2].plot(valve_angle_opt.universe, valve_angle_opt['open_q'].mf, 'green', linewidth=1.5, label='open_q')
+axes[2].set_title('Рисунок 9: Оптимізовані функції належності для кута повороту (гауссові)', fontweight='bold')
+axes[2].set_xlabel('Кут повороту')
+axes[2].set_ylabel('Ступінь належності')
+axes[2].legend()
+axes[2].grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# =============================================================================
+# ВИСНОВКИ
+# =============================================================================
+
+print("\n" + "=" * 70)
+print("ЗАГАЛЬНІ ВИСНОВКИ")
+print("=" * 70)
+
+print("""
+1. Успішно створено експертну систему керування краном гарячої води з використанням
+   нечіткої логіки в Python замість MATLAB Fuzzy Logic Toolbox.
+
+2. Система має дві вхідні змінні (температура, напір) та одну вихідну (кут повороту крана).
+
+3. Реалізовано два варіанти системи:
+   - Базова версія з трикутними функціями належності
+   - Оптимізована версія з гауссовими функціями належності та додатковими правилами
+
+4. Оптимізована система демонструє більш плавну роботу завдяки використанню 
+   гауссових функцій належності та розширеній базі правил.
+
+5. Система ефективно реагує на зміни температури та напору, забезпечуючи оптимальне
+   керування краном для підтримання комфортних умов.
+
+6. Візуалізація поверхні відгуку дозволяє аналізувати поведінку системи в різних 
+   режимах роботи.
+""")
+
+print("ЛАБОРАТОРНУ РОБОТУ 3 ВИКОНАНО УСПІШНО!")
+print("Експертна система нечіткого керування створена та протестована")
+print("Зроблено студентами групи І-24 Коваленко Олександром Вікторовичем та Звонником Дмитріем Сергійовичем")
+print("=" * 70)
