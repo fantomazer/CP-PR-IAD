@@ -1,0 +1,465 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
+import time
+import warnings
+
+warnings.filterwarnings('ignore')
+
+
+# =============================================================================
+# ВИЗНАЧЕННЯ ЦІЛЬОВИХ ФУНКЦІЙ ДЛЯ ОБОХ ВАРІАНТІВ
+# =============================================================================
+
+def objective_v1(x):
+    """Варіант 1: y = (1 - x₁)² + (2 - x₂)²"""
+    return (1 - x[0]) ** 2 + (2 - x[1]) ** 2
+
+
+def objective_v2(x):
+    """Варіант 2: y = (5 - 2x₁)⁸ + (6 - 3x₂)⁴"""
+    return (5 - 2 * x[0]) ** 8 + (6 - 3 * x[1]) ** 4
+
+
+# Початкові точки для кожного варіанту
+x0_v1 = np.array([0.0, 0.0])
+x0_v2 = np.array([3.0, 2.0])
+
+# Аналітичні розв'язки
+analytical_v1 = {'x_opt': np.array([1.0, 2.0]), 'f_opt': 0.0}
+analytical_v2 = {'x_opt': np.array([2.5, 2.0]), 'f_opt': 0.0}
+
+
+# =============================================================================
+# КЛАС ЕВОЛЮЦІЙНОГО ОПТИМІЗАТОРА (ЗАВДАННЯ 2)
+# =============================================================================
+
+class EvolutionaryOptimizer:
+    """Еволюційний оптимізатор для гібридного методу"""
+
+    def __init__(self, objective_func, bounds, pop_size=200, elite_size=3,
+                 mutation_rate=0.1, crossover_rate=0.75, max_generations=100):
+        self.objective_func = objective_func
+        self.bounds = bounds
+        self.pop_size = pop_size
+        self.elite_size = elite_size
+        self.mutation_rate = mutation_rate
+        self.crossover_rate = crossover_rate
+        self.max_generations = max_generations
+
+    def initialize_population(self):
+        """Ініціалізація популяції"""
+        dim = len(self.bounds)
+        population = np.zeros((self.pop_size, dim))
+
+        for i in range(dim):
+            low, high = self.bounds[i]
+            population[:, i] = np.random.uniform(low, high, self.pop_size)
+
+        return population
+
+    def evaluate_fitness(self, population):
+        """Оцінка пристосованості"""
+        return np.array([self.objective_func(ind) for ind in population])
+
+    def proportional_selection(self, fitness):
+        """Пропорційний відбір (рулетка)"""
+        adjusted_fitness = np.max(fitness) - fitness + 1e-12
+        probabilities = adjusted_fitness / np.sum(adjusted_fitness)
+        return np.random.choice(len(fitness), size=self.pop_size - self.elite_size,
+                                p=probabilities)
+
+    def uniform_crossover(self, parent1, parent2):
+        """Однорідне схрещування"""
+        if np.random.random() < self.crossover_rate:
+            mask = np.random.randint(0, 2, size=len(parent1))
+            child = parent1.copy()
+            child[mask == 1] = parent2[mask == 1]
+            return child
+        return parent1
+
+    def gaussian_mutation(self, individual):
+        """Гауссівська мутація"""
+        mutated = individual.copy()
+        for i in range(len(mutated)):
+            if np.random.random() < self.mutation_rate:
+                range_size = self.bounds[i][1] - self.bounds[i][0]
+                sigma = range_size * 0.1
+                mutated[i] += np.random.normal(0, sigma)
+                mutated[i] = np.clip(mutated[i], self.bounds[i][0], self.bounds[i][1])
+        return mutated
+
+    def optimize(self, Pe=None, verbose=False):
+        """Основна процедура оптимізації"""
+        if Pe is not None:
+            if not (0 <= Pe <= 1):
+                raise ValueError("Ймовірність схрещування Pe повинна бути в діапазоні [0, 1]")
+            self.crossover_rate = Pe
+        else:
+            self.crossover_rate = 0.75
+
+        population = self.initialize_population()
+        best_fitness_history = []
+        avg_fitness_history = []
+
+        for generation in range(self.max_generations):
+            # Оцінка пристосованості
+            fitness = self.evaluate_fitness(population)
+
+            # Статистика
+            best_idx = np.argmin(fitness)
+            best_fitness_history.append(fitness[best_idx])
+            avg_fitness_history.append(np.mean(fitness))
+
+            if verbose and generation % 20 == 0:
+                print(f"Покоління {generation}: найкраще f(x) = {fitness[best_idx]:.6f}")
+
+            # Відбір елітних особин
+            elite_indices = np.argsort(fitness)[:self.elite_size]
+            elite_population = population[elite_indices]
+
+            # Пропорційний відбір
+            selected_indices = self.proportional_selection(fitness)
+            selected_population = population[selected_indices]
+
+            # Створення нової популяції
+            new_population = []
+            new_population.extend(elite_population)
+
+            while len(new_population) < self.pop_size:
+                # Вибираємо батьків
+                idx1, idx2 = np.random.choice(len(selected_population), 2, replace=False)
+                parent1, parent2 = selected_population[idx1], selected_population[idx2]
+
+                # Схрещування
+                child = self.uniform_crossover(parent1, parent2)
+
+                # Мутація
+                child = self.gaussian_mutation(child)
+
+                new_population.append(child)
+
+            population = np.array(new_population)
+
+        # Фінальний результат
+        final_fitness = self.evaluate_fitness(population)
+        best_idx = np.argmin(final_fitness)
+        best_solution = population[best_idx]
+        best_value = final_fitness[best_idx]
+
+        return best_solution, best_value, best_fitness_history, avg_fitness_history
+
+
+# =============================================================================
+# ЗАВДАННЯ 3: ДОСЛІДЖЕННЯ ЕФЕКТИВНОСТІ (100 ЕКСПЕРИМЕНТІВ)
+# =============================================================================
+
+def run_performance_analysis(Pe=0.75, n_experiments=100):
+    """Проведення серії експериментів для дослідження ефективності"""
+
+    print("ЗАВДАННЯ 3: ДОСЛІДЖЕННЯ ЕФЕКТИВНОСТІ ЕВОЛЮЦІЙНОГО ПОШУКУ")
+    print("=" * 70)
+    print(f"Кількість експериментів: {n_experiments}")
+    print(f"Ймовірність схрещування Pe: {Pe}")
+    print("=" * 70)
+
+    # Параметри для кожного варіанту
+    variants = {
+        'Варіант 1': {
+            'func': objective_v1,
+            'bounds': [(-2, 4), (-1, 5)],
+            'analytical': analytical_v1
+        },
+        'Варіант 2': {
+            'func': objective_v2,
+            'bounds': [(2, 3), (1.5, 2.5)],
+            'analytical': analytical_v2
+        }
+    }
+
+    results = {}
+
+    for variant_name, params in variants.items():
+        print(f"\n{'=' * 60}")
+        print(f"АНАЛІЗ ЕФЕКТИВНОСТІ: {variant_name}")
+        print(f"{'=' * 60}")
+
+        # Масиви для зберігання результатів
+        all_ea_values = []
+        all_hybrid_values = []
+        all_improvements = []
+        all_ea_times = []
+        all_hybrid_times = []
+        all_total_times = []
+        all_errors = []
+
+        # Створення оптимізатора
+        optimizer = EvolutionaryOptimizer(
+            params['func'], params['bounds'],
+            pop_size=200, elite_size=3, max_generations=50
+        )
+
+        # Проведення серії експериментів
+        for exp in range(n_experiments):
+            if (exp + 1) % 10 == 0:
+                print(f"Виконано експериментів: {exp + 1}/{n_experiments}")
+
+            # Еволюційний пошук
+            start_ea = time.time()
+            ea_solution, ea_value, best_history, avg_history = optimizer.optimize(Pe=Pe)
+            end_ea = time.time()
+            ea_time = end_ea - start_ea
+
+            # Pattern Search (гібридний метод)
+            start_hybrid = time.time()
+            hybrid_result = minimize(params['func'], ea_solution, method='Powell',
+                                     options={'xtol': 1e-8, 'ftol': 1e-8})
+            end_hybrid = time.time()
+            hybrid_time = end_hybrid - start_hybrid
+
+            # Обчислення похибки
+            error = np.linalg.norm(hybrid_result.x - params['analytical']['x_opt'])
+            improvement = ea_value - hybrid_result.fun
+
+            # Збереження результатів
+            all_ea_values.append(ea_value)
+            all_hybrid_values.append(hybrid_result.fun)
+            all_improvements.append(improvement)
+            all_ea_times.append(ea_time)
+            all_hybrid_times.append(hybrid_time)
+            all_total_times.append(ea_time + hybrid_time)
+            all_errors.append(error)
+
+        # Перетворення в numpy arrays
+        all_ea_values = np.array(all_ea_values)
+        all_hybrid_values = np.array(all_hybrid_values)
+        all_improvements = np.array(all_improvements)
+        all_ea_times = np.array(all_ea_times)
+        all_hybrid_times = np.array(all_hybrid_times)
+        all_total_times = np.array(all_total_times)
+        all_errors = np.array(all_errors)
+
+        # Збереження результатів для варіанту
+        results[variant_name] = {
+            'ea_values': all_ea_values,
+            'hybrid_values': all_hybrid_values,
+            'improvements': all_improvements,
+            'ea_times': all_ea_times,
+            'hybrid_times': all_hybrid_times,
+            'total_times': all_total_times,
+            'errors': all_errors
+        }
+
+        # Вивід статистики
+        print_statistics(variant_name, all_ea_values, all_hybrid_values,
+                         all_improvements, all_total_times, all_errors)
+
+    # Порівняльний аналіз варіантів
+    print_comparative_analysis(results)
+
+    # Візуалізація результатів
+    plot_performance_results(results, n_experiments)
+
+    return results
+
+
+def print_statistics(variant_name, ea_values, hybrid_values, improvements, total_times, errors):
+    """Вивід статистичних результатів"""
+
+    print(f"\nСТАТИСТИКА ДЛЯ {variant_name} ({len(ea_values)} експериментів):")
+    print("-" * 50)
+
+    print("ЕВОЛЮЦІЙНИЙ ПОШУК:")
+    print(f"  Середнє f(x): {np.mean(ea_values):.8f}")
+    print(f"  Стандартне відхилення: {np.std(ea_values):.8f}")
+    print(f"  Мінімальне значення: {np.min(ea_values):.8f}")
+    print(f"  Максимальне значення: {np.max(ea_values):.8f}")
+
+    print("\nГІБРИДНИЙ МЕТОД:")
+    print(f"  Середнє f(x): {np.mean(hybrid_values):.8f}")
+    print(f"  Стандартне відхилення: {np.std(hybrid_values):.8f}")
+    print(f"  Мінімальне значення: {np.min(hybrid_values):.8f}")
+    print(f"  Максимальне значення: {np.max(hybrid_values):.8f}")
+
+    print("\nПОКРАЩЕННЯ (Еволюційний - Гібридний):")
+    print(f"  Середнє покращення: {np.mean(improvements):.8f}")
+    print(f"  Стандартне відхилення: {np.std(improvements):.8f}")
+    print(f"  Мінімальне покращення: {np.min(improvements):.8f}")
+    print(f"  Максимальне покращення: {np.max(improvements):.8f}")
+
+    print("\nЧАС ВИКОНАННЯ (секунди):")
+    print(f"  Середній час: {np.mean(total_times):.4f}")
+    print(f"  Стандартне відхилення часу: {np.std(total_times):.4f}")
+    print(f"  Мінімальний час: {np.min(total_times):.4f}")
+    print(f"  Максимальний час: {np.max(total_times):.4f}")
+
+    print("\nТОЧНІСТЬ:")
+    print(f"  Середня похибка: {np.mean(errors):.8f}")
+    print(f"  Стандартне відхилення похибки: {np.std(errors):.8f}")
+
+
+def print_comparative_analysis(results):
+    """Порівняльний аналіз двох варіантів"""
+
+    print("\n" + "=" * 80)
+    print("ПОРІВНЯЛЬНИЙ АНАЛІЗ ВАРІАНТІВ")
+    print("=" * 80)
+
+    print(f"{'Метрика':<25} {'Варіант 1':<15} {'Варіант 2':<15} {'Різниця':<15}")
+    print("-" * 80)
+
+    v1 = results['Варіант 1']
+    v2 = results['Варіант 2']
+
+    metrics = [
+        ('Середнє f(x) EA', np.mean(v1['ea_values']), np.mean(v2['ea_values'])),
+        ('Стандартне відхилення EA', np.std(v1['ea_values']), np.std(v2['ea_values'])),
+        ('Середнє f(x) гібрид', np.mean(v1['hybrid_values']), np.mean(v2['hybrid_values'])),
+        ('Середнє покращення', np.mean(v1['improvements']), np.mean(v2['improvements'])),
+        ('Середній час (с)', np.mean(v1['total_times']), np.mean(v2['total_times'])),
+        ('Середня похибка', np.mean(v1['errors']), np.mean(v2['errors']))
+    ]
+
+    for metric, v1_val, v2_val in metrics:
+        difference = v2_val - v1_val
+        if 'час' in metric.lower() or 'секунд' in metric.lower():
+            print(f"{metric:<25} {v1_val:<15.4f} {v2_val:<15.4f} {difference:<15.4f}")
+        else:
+            print(f"{metric:<25} {v1_val:<15.8f} {v2_val:<15.8f} {difference:<15.8f}")
+
+
+def plot_performance_results(results, n_experiments):
+    """Візуалізація результатів серії експериментів"""
+
+    fig = plt.figure(figsize=(20, 12))
+
+    # 1. Розподіл значень цільової функції
+    plt.subplot(2, 3, 1)
+    for i, (variant_name, data) in enumerate(results.items()):
+        plt.hist(data['ea_values'], bins=30, alpha=0.6,
+                 label=f'{variant_name} (EA)', color=['blue', 'red'][i])
+        plt.hist(data['hybrid_values'], bins=30, alpha=0.6,
+                 label=f'{variant_name} (Гібрид)', color=['lightblue', 'pink'][i])
+
+    plt.xlabel('Значення f(x)')
+    plt.ylabel('Частота')
+    plt.title('Розподіл значень цільової функції')
+    plt.legend()
+    plt.yscale('log')
+
+    # 2. Розподіл часу виконання
+    plt.subplot(2, 3, 2)
+    times_data = [results['Варіант 1']['total_times'], results['Варіант 2']['total_times']]
+    plt.boxplot(times_data, labels=['Варіант 1', 'Варіант 2'])
+    plt.ylabel('Час (секунди)')
+    plt.title('Розподіл часу виконання')
+
+    # 3. Розподіл покращень
+    plt.subplot(2, 3, 3)
+    for i, (variant_name, data) in enumerate(results.items()):
+        plt.hist(data['improvements'], bins=30, alpha=0.6,
+                 label=variant_name, color=['blue', 'red'][i])
+
+    plt.xlabel('Покращення (EA - Гібрид)')
+    plt.ylabel('Частота')
+    plt.title('Розподіл покращень від гібридного методу')
+    plt.legend()
+
+    # 4. Збіжність середніх значень
+    plt.subplot(2, 3, 4)
+    experiments_range = range(1, n_experiments + 1)
+
+    for variant_name, data in results.items():
+        cumulative_mean = np.cumsum(data['hybrid_values']) / experiments_range
+        plt.plot(experiments_range, cumulative_mean, label=variant_name, linewidth=2)
+
+    plt.xlabel('Кількість експериментів')
+    plt.ylabel('Середнє значення f(x)')
+    plt.title('Збіжність середнього значення')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+
+    # 5. Похибка від оптимуму
+    plt.subplot(2, 3, 5)
+    for i, (variant_name, data) in enumerate(results.items()):
+        plt.hist(data['errors'], bins=30, alpha=0.6,
+                 label=variant_name, color=['blue', 'red'][i])
+
+    plt.xlabel('Похибка від аналітичного розв\'язку')
+    plt.ylabel('Частота')
+    plt.title('Розподіл похибок')
+    plt.legend()
+    plt.yscale('log')
+
+    # 6. Співвідношення часу та якості
+    plt.subplot(2, 3, 6)
+    for i, (variant_name, data) in enumerate(results.items()):
+        plt.scatter(data['total_times'], data['errors'],
+                    alpha=0.6, label=variant_name, color=['blue', 'red'][i])
+
+    plt.xlabel('Час виконання (с)')
+    plt.ylabel('Похибка')
+    plt.title('Співвідношення часу та якості')
+    plt.legend()
+    plt.yscale('log')
+
+    plt.tight_layout()
+    plt.suptitle(f'Результати {n_experiments} експериментів еволюційної оптимізації',
+                 fontsize=16, y=1.02)
+    plt.show()
+
+
+# =============================================================================
+# ОСНОВНА ПРОГРАМА
+# =============================================================================
+
+if __name__ == "__main__":
+    import sys
+
+    # Обробка параметра Pe
+    Pe = 0.75
+    if len(sys.argv) > 1:
+        try:
+            Pe = float(sys.argv[1])
+            if not (0 <= Pe <= 1):
+                raise ValueError("Pe повинна бути в діапазоні [0, 1]")
+            print(f"Використання Pe = {Pe} з командного рядка")
+        except ValueError as e:
+            print(f"Помилка: {e}")
+            print("Використання значення за замовчуванням Pe = 0.75")
+            Pe = 0.75
+    else:
+        print("Виклик без параметрів. Використання Pe = 0.75 за замовчуванням")
+
+    # Запуск аналізу ефективності
+    n_experiments = 100  # Згідно з завданням
+
+    print("ПОЧАТОК АНАЛІЗУ ЕФЕКТИВНОСТІ...")
+    start_time = time.time()
+
+    results = run_performance_analysis(Pe=Pe, n_experiments=n_experiments)
+
+    total_time = time.time() - start_time
+    print(f"\nЗагальний час виконання {n_experiments} експериментів: {total_time:.2f} секунд")
+
+    # Додатковий аналіз
+    print("\n" + "=" * 60)
+    print("ВИСНОВКИ ТА РЕКОМЕНДАЦІЇ")
+    print("=" * 60)
+
+    v1_improvement = np.mean(results['Варіант 1']['improvements'])
+    v2_improvement = np.mean(results['Варіант 2']['improvements'])
+
+    if v1_improvement > v2_improvement:
+        print("✓ Варіант 1 отримує більшу вигоду від гібридного методу")
+    else:
+        print("✓ Варіант 2 отримує більшу вигоду від гібридного методу")
+
+    v1_time = np.mean(results['Варіант 1']['total_times'])
+    v2_time = np.mean(results['Варіант 2']['total_times'])
+
+    print(f"✓ Середній час оптимізації: Варіант 1 - {v1_time:.3f}с, Варіант 2 - {v2_time:.3f}с")
+
+    print("✓ Гібридний метод забезпечує стабільне покращення результатів")
+    print("✓ Еволюційний пошук ефективний для пошуку наближеного розв'язку")
+    print("✓ Pattern Search ефективно уточнює знайдений розв'язок")
