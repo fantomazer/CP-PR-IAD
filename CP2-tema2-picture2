@@ -1,0 +1,315 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
+import time
+import sys
+
+
+# Цільова функція для завдання 2
+def objective(x):
+    """f(x₁,x₂) = x₁·sin(4x₁) + 1.1·x₂·sin(2x₂)"""
+    return x[0] * np.sin(4 * x[0]) + 1.1 * x[1] * np.sin(2 * x[1])
+
+
+class EvolutionaryOptimizer:
+    """Еволюційний оптимізатор з заданими параметрами"""
+
+    def __init__(self, pop_size=200, elite_size=3, mutation_rate=0.1,
+                 crossover_rate=0.75, max_generations=100):
+        self.pop_size = pop_size
+        self.elite_size = elite_size
+        self.mutation_rate = mutation_rate
+        self.crossover_rate = crossover_rate
+        self.max_generations = max_generations
+        self.bounds = [(-10, 10), (-10, 10)]  # межі пошуку
+
+    def initialize_population(self):
+        """Ініціалізація випадкової популяції"""
+        population = np.zeros((self.pop_size, 2))
+        for i in range(2):
+            low, high = self.bounds[i]
+            population[:, i] = np.random.uniform(low, high, self.pop_size)
+        return population
+
+    def evaluate_fitness(self, population):
+        """Оцінка пристосованості кожної особини"""
+        return np.array([objective(ind) for ind in population])
+
+    def proportional_selection(self, fitness):
+        """Пропорційний відбір (рулетка)"""
+        # Для мінімізації - інвертуємо пристосованість
+        adjusted_fitness = np.max(fitness) - fitness + 1e-12
+        probabilities = adjusted_fitness / np.sum(adjusted_fitness)
+        return np.random.choice(len(fitness), size=self.pop_size - self.elite_size,
+                                p=probabilities)
+
+    def uniform_crossover(self, parent1, parent2):
+        """Однорідне схрещування"""
+        if np.random.random() < self.crossover_rate:
+            mask = np.random.randint(0, 2, size=len(parent1))
+            child = parent1.copy()
+            child[mask == 1] = parent2[mask == 1]
+            return child
+        return parent1
+
+    def gaussian_mutation(self, individual):
+        """Гауссівська мутація"""
+        mutated = individual.copy()
+        for i in range(len(mutated)):
+            if np.random.random() < self.mutation_rate:
+                # Мутація з нормальним розподілом
+                sigma = 0.5  # стандартне відхилення
+                mutated[i] += np.random.normal(0, sigma)
+                # Обмеження межами
+                mutated[i] = np.clip(mutated[i], self.bounds[i][0], self.bounds[i][1])
+        return mutated
+
+    def optimize(self, Pe=None, verbose=False):
+        """Основна процедура еволюційної оптимізації"""
+        # Перевірка коректності Pe
+        if Pe is not None:
+            if not (0 <= Pe <= 1):
+                raise ValueError("Ймовірність схрещування Pe повинна бути в діапазоні [0, 1]")
+            self.crossover_rate = Pe
+        elif Pe is None:
+            self.crossover_rate = 0.75  # значення за замовчуванням
+
+        # Ініціалізація популяції
+        population = self.initialize_population()
+        best_fitness_history = []
+        avg_fitness_history = []
+
+        print("Запуск еволюційного пошуку...")
+        print(f"Параметри: Pop_size={self.pop_size}, Elite={self.elite_size}, Mut_rate={self.mutation_rate}")
+        print(f"Схрещування: Pc={self.crossover_rate}, Поколінь: {self.max_generations}")
+
+        for generation in range(self.max_generations):
+            # 1. Оцінка пристосованості
+            fitness = self.evaluate_fitness(population)
+
+            # 2. Збереження статистики
+            best_idx = np.argmin(fitness)
+            best_fitness_history.append(fitness[best_idx])
+            avg_fitness_history.append(np.mean(fitness))
+
+            if verbose and generation % 20 == 0:
+                print(f"Покоління {generation}: найкраще f(x) = {fitness[best_idx]:.6f}")
+
+            # 3. Відбір елітних особин
+            elite_indices = np.argsort(fitness)[:self.elite_size]
+            elite_population = population[elite_indices]
+
+            # 4. Пропорційний відбір для решти
+            selected_indices = self.proportional_selection(fitness)
+            selected_population = population[selected_indices]
+
+            # 5. Створення нової популяції
+            new_population = []
+
+            # Додаємо елітних особин
+            new_population.extend(elite_population)
+
+            # Створюємо нових особин
+            while len(new_population) < self.pop_size:
+                # Вибираємо двох батьків
+                idx1, idx2 = np.random.choice(len(selected_population), 2, replace=False)
+                parent1, parent2 = selected_population[idx1], selected_population[idx2]
+
+                # Схрещування
+                child = self.uniform_crossover(parent1, parent2)
+
+                # Мутація
+                child = self.gaussian_mutation(child)
+
+                new_population.append(child)
+
+            population = np.array(new_population)
+
+        # Фінальний результат
+        final_fitness = self.evaluate_fitness(population)
+        best_idx = np.argmin(final_fitness)
+        best_solution = population[best_idx]
+        best_value = final_fitness[best_idx]
+
+        print(f"Еволюційний пошук завершено. Найкращий результат: f({best_solution}) = {best_value:.6f}")
+
+        return best_solution, best_value, best_fitness_history, avg_fitness_history
+
+
+def hybrid_optimization(Pe=None):
+    """Гібридна оптимізація: еволюційний пошук + patternsearch"""
+
+    # Перевірка аргументів командного рядка
+    if Pe is None:
+        if len(sys.argv) > 1:
+            try:
+                Pe = float(sys.argv[1])
+                if not (0 <= Pe <= 1):
+                    raise ValueError("Pe повинна бути в діапазоні [0, 1]")
+                print(f"Використання Pe = {Pe} з командного рядка")
+            except ValueError as e:
+                print(f"Помилка: {e}")
+                print("Використання значення за замовчуванням Pe = 0.75")
+                Pe = 0.75
+        else:
+            print("Виклик без параметрів. Використання значення за замовчуванням Pe = 0.75")
+            Pe = 0.75
+
+    # Створення оптимізатора з обраними параметрами
+    optimizer = EvolutionaryOptimizer(
+        pop_size=200,
+        elite_size=3,
+        mutation_rate=0.1,
+        crossover_rate=Pe,  # використовуємо задану Pe
+        max_generations=100
+    )
+
+    print("\n" + "=" * 60)
+    print("ЕТАП 1: ЕВОЛЮЦІЙНИЙ ПОШУК")
+    print("=" * 60)
+
+    # Запуск еволюційного пошуку
+    start_ea = time.time()
+    ea_solution, ea_value, best_history, avg_history = optimizer.optimize(Pe=Pe, verbose=True)
+    end_ea = time.time()
+
+    print(f"\nЧас еволюційного пошуку: {end_ea - start_ea:.2f} секунд")
+
+    print("\n" + "=" * 60)
+    print("ЕТАП 2: PATTERN SEARCH (УТОЧНЕННЯ)")
+    print("=" * 60)
+
+    # Використання результату еволюційного пошуку для patternsearch
+    start_ps = time.time()
+    ps_result = minimize(objective, ea_solution, method='Powell',
+                         options={'xtol': 1e-8, 'ftol': 1e-8, 'disp': True})
+    end_ps = time.time()
+
+    print(f"Час pattern search: {end_ps - start_ps:.2f} секунд")
+
+    print("\n" + "=" * 60)
+    print("РЕЗУЛЬТАТИ ГІБРИДНОЇ ОПТИМІЗАЦІЇ")
+    print("=" * 60)
+
+    print(f"Еволюційний пошук:")
+    print(f"  x = [{ea_solution[0]:.6f}, {ea_solution[1]:.6f}]")
+    print(f"  f(x) = {ea_value:.6f}")
+
+    print(f"Pattern Search (уточнення):")
+    print(f"  x = [{ps_result.x[0]:.6f}, {ps_result.x[1]:.6f}]")
+    print(f"  f(x) = {ps_result.fun:.6f}")
+
+    improvement = ea_value - ps_result.fun
+    print(f"Покращення: {improvement:.6f}")
+    print(f"Загальний час: {end_ea - start_ea + end_ps - start_ps:.2f} секунд")
+
+    # Візуалізація результатів
+    plot_results(objective, ea_solution, ps_result.x, ea_value, ps_result.fun,
+                 best_history, avg_history, optimizer.bounds)
+
+    return ea_solution, ps_result.x, ea_value, ps_result.fun, best_history
+
+
+def plot_results(obj_func, ea_point, ps_point, ea_value, ps_value, best_hist, avg_hist, bounds):
+    """Візуалізація результатів оптимізації"""
+
+    # Створення сітки для 3D графіка
+    x1 = np.linspace(bounds[0][0], bounds[0][1], 50)
+    x2 = np.linspace(bounds[1][0], bounds[1][1], 50)
+    X1, X2 = np.meshgrid(x1, x2)
+    Z = np.zeros_like(X1)
+
+    for i in range(X1.shape[0]):
+        for j in range(X1.shape[1]):
+            Z[i, j] = obj_func([X1[i, j], X2[i, j]])
+
+    # Створення графіків
+    fig = plt.figure(figsize=(18, 6))
+
+    # 1. 3D поверхня з точками оптимуму
+    ax1 = fig.add_subplot(1, 3, 1, projection='3d')
+    surf = ax1.plot_surface(X1, X2, Z, cmap='viridis', alpha=0.7)
+
+    # Додавання точок оптимуму
+    ax1.scatter(ea_point[0], ea_point[1], ea_value,
+                color='red', s=100, label='Еволюційний пошук', edgecolors='black')
+    ax1.scatter(ps_point[0], ps_point[1], ps_value,
+                color='blue', s=100, label='Pattern Search', edgecolors='black')
+
+    ax1.set_xlabel('x₁')
+    ax1.set_ylabel('x₂')
+    ax1.set_zlabel('f(x)')
+    ax1.set_title('3D графік функції та точки оптимуму')
+    ax1.legend()
+
+    # 2. Контурний графік
+    ax2 = fig.add_subplot(1, 3, 2)
+    contour = ax2.contour(X1, X2, Z, levels=20)
+    plt.clabel(contour, inline=1, fontsize=8)
+
+    ax2.plot(ea_point[0], ea_point[1], 'ro', markersize=8, label='Еволюційний пошук')
+    ax2.plot(ps_point[0], ps_point[1], 'bo', markersize=8, label='Pattern Search')
+
+    # Стрілка від еволюційного до pattern search
+    ax2.arrow(ea_point[0], ea_point[1],
+              ps_point[0] - ea_point[0], ps_point[1] - ea_point[1],
+              head_width=0.2, head_length=0.2, fc='green', ec='green',
+              label='Уточнення')
+
+    ax2.set_xlabel('x₁')
+    ax2.set_ylabel('x₂')
+    ax2.set_title('Контурний графік з траєкторією оптимізації')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+
+    # 3. Графік збіжності еволюційного алгоритму
+    ax3 = fig.add_subplot(1, 3, 3)
+    generations = range(len(best_hist))
+
+    ax3.plot(generations, best_hist, 'b-', linewidth=2, label='Найкраща пристосованість')
+    ax3.plot(generations, avg_hist, 'r--', alpha=0.7, label='Середня пристосованість')
+
+    ax3.set_xlabel('Покоління')
+    ax3.set_ylabel('f(x)')
+    ax3.set_title('Збіжність еволюційного алгоритму')
+    ax3.legend()
+    ax3.grid(True, alpha=0.3)
+    ax3.set_yscale('log')  # Логарифмічна шкала для кращої видимості
+
+    plt.tight_layout()
+    plt.show()
+
+    # Вивід статистики збіжності
+    print("\nСТАТИСТИКА ЗБІЖНОСТІ ЕВОЛЮЦІЙНОГО АЛГОРИТМУ:")
+    print(f"Початкова найкраща пристосованість: {best_hist[0]:.6f}")
+    print(f"Фінальна найкраща пристосованість: {best_hist[-1]:.6f}")
+    print(f"Покращення за {len(best_hist)} поколінь: {best_hist[0] - best_hist[-1]:.6f}")
+    print(f"Відносне покращення: {(best_hist[0] - best_hist[-1]) / best_hist[0] * 100:.2f}%")
+
+
+# Основна програма
+if __name__ == "__main__":
+    print("ГІБРИДНА ОПТИМІЗАЦІЯ: ЕВОЛЮЦІЙНИЙ ПОШУК + PATTERN SEARCH")
+    print("Функція: f(x₁,x₂) = x₁·sin(4x₁) + 1.1·x₂·sin(2x₂)")
+    print("=" * 70)
+
+    # Виклик гібридної оптимізації
+    try:
+        ea_sol, ps_sol, ea_val, ps_val, history = hybrid_optimization()
+
+        # Додаткова інформація про функцію
+        print("\n" + "=" * 60)
+        print("ДОДАТКОВА ІНФОРМАЦІЯ ПРО ФУНКЦІЮ")
+        print("=" * 60)
+
+        # Перевірка кількох випадкових точок для оцінки діапазону значень
+        test_points = np.random.uniform(-10, 10, (10, 2))
+        test_values = [objective(point) for point in test_points]
+
+        print(f"Діапазон значень функції на випадкових точках:")
+        print(f"Мінімум: {np.min(test_values):.2f}, Максимум: {np.max(test_values):.2f}")
+        print(f"Середнє: {np.mean(test_values):.2f}, Стандартне відхилення: {np.std(test_values):.2f}")
+
+    except Exception as e:
+        print(f"Помилка під час виконання: {e}")
+        print("Перевірте параметри та спробуйте ще раз")
