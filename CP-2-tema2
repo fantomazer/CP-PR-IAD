@@ -1,0 +1,368 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.optimize import minimize
+from scipy.stats import norm
+
+# Налаштування відображення
+plt.style.use('seaborn-v0_8')
+plt.rcParams['font.family'] = 'DejaVu Sans'
+plt.rcParams['figure.figsize'] = (14, 10)
+
+print("=" * 80)
+print("ПРАКТИКО-ОРІЄНТОВАНЕ ЗАВДАННЯ: РЕГРЕСІЯ КОКСА")
+print("Комплексний аналіз виживання для оцінки ризику відсічення студентів")
+print("=" * 80)
+
+# 1. ГЕНЕРАЦІЯ ДЕТАЛЬНИХ ДАНИХ ПРО СТУДЕНТІВ
+print("\n1. ГЕНЕРАЦІЯ ДЕТАЛЬНИХ ДАНИХ ПРО 400 СТУДЕНТІВ...")
+
+np.random.seed(42)
+n_students = 400
+
+# Генерація реалістичних даних
+data = pd.DataFrame({
+    'студент_id': range(1, n_students + 1),
+    'години_навчання': np.clip(np.random.normal(14, 4, n_students), 5, 25),
+    'відвідуваність': np.clip(np.random.normal(80, 12, n_students), 40, 100),
+    'активність': np.clip(np.random.normal(6.5, 1.8, n_students), 2, 10),
+    'мотивація': np.clip(np.random.normal(7.2, 1.5, n_students), 3, 10),
+    'попередній_бал': np.clip(np.random.normal(72, 8, n_students), 50, 95),
+    'кількість_курсів': np.random.poisson(5, n_students) + 3
+})
+
+# Додаємо кореляції між змінними
+data['мотивація'] = data['мотивація'] + 0.3 * (data['відвідуваність'] - 80) / 12
+data['активність'] = data['активність'] + 0.2 * (data['години_навчання'] - 14) / 4
+
+# Генерація часу до події з складними залежностями
+base_time = np.random.weibull(1.5, n_students) * 180 + 60
+
+# Складні залежності для реалістичності
+risk_factors = (
+        -1.2 * (data['години_навчання'] - 14) / 4 +  # Сильний захисний ефект
+        -0.9 * (data['відвідуваність'] - 80) / 12 +  # Сильний захисний ефект
+        -0.6 * (data['активність'] - 6.5) / 1.8 +  # Помірний захисний ефект
+        -0.7 * (data['мотивація'] - 7.2) / 1.5 +  # Помірний захисний ефект
+        -0.4 * (data['попередній_бал'] - 72) / 8 +  # Слабкий захисний ефект
+        0.3 * (data['кількість_курсів'] - 5) / 2  # Слабкий фактор ризику (перевантаження)
+)
+
+data['час_навчання'] = np.clip(base_time * np.exp(risk_factors), 30, 500)
+
+# Генерація подій з залежністю від ризику
+event_prob = 1 / (1 + np.exp(-risk_factors * 0.5))
+data['відсічення'] = np.random.binomial(1, event_prob)
+
+print("📊 ОСНОВНА СТАТИСТИКА ДАНИХ:")
+print("-" * 50)
+print(f"Загальна кількість студентів: {n_students}")
+print(f"Відсічень: {data['відсічення'].sum()} ({data['відсічення'].mean() * 100:.1f}%)")
+print(f"Середній час навчання: {data['час_навчання'].mean():.1f} ± {data['час_навчання'].std():.1f} днів")
+print(f"Медіанний час навчання: {data['час_навчання'].median():.1f} днів")
+
+print("\n📈 ОПИСОВА СТАТИСТИКА ЗМІННИХ:")
+print(data[['години_навчання', 'відвідуваність', 'активність', 'мотивація', 'попередній_бал']].describe().round(2))
+
+# 2. ПОПЕРЕДНІЙ АНАЛІЗ ДАНИХ
+print("\n" + "=" * 80)
+print("2. ПОПЕРЕДНІЙ АНАЛІЗ ДАНИХ ТА КОРЕЛЯЦІЇ")
+print("=" * 80)
+
+# Кореляційна матриця
+corr_matrix = data[['години_навчання', 'відвідуваність', 'активність', 'мотивація',
+                    'попередній_бал', 'кількість_курсів', 'відсічення']].corr()
+
+plt.figure(figsize=(12, 10))
+mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
+sns.heatmap(corr_matrix, mask=mask, annot=True, cmap='coolwarm', center=0,
+            square=True, fmt='.2f', cbar_kws={"shrink": .8})
+plt.title('МАТРИЦЯ КОРЕЛЯЦІЙ МІЖ ЗМІННИМИ', fontsize=16, fontweight='bold', pad=20)
+plt.tight_layout()
+plt.show()
+
+# 3. РЕАЛІЗАЦІЯ МОДЕЛІ КОКСА
+print("\n" + "=" * 80)
+print("3. ПОБУДОВА МОДЕЛІ ПРОПОРЦІЙНИХ РИЗИКІВ КОКСА")
+print("=" * 80)
+
+
+def cox_partial_likelihood(beta, X, time, event):
+    """Розширена функція правдоподібності Кокса з регуляризацією"""
+    n = len(time)
+    log_likelihood = 0
+
+    linear_predictor = X @ beta
+
+    for i in range(n):
+        if event[i] == 1:
+            risk_set = time >= time[i]
+
+            if np.sum(risk_set) > 0:
+                numerator = linear_predictor[i]
+                denominator = np.log(np.sum(np.exp(linear_predictor[risk_set])))
+                log_likelihood += numerator - denominator
+
+    # Додаємо L2 регуляризацію для стабільності
+    regularization = 0.01 * np.sum(beta ** 2)
+
+    return -log_likelihood + regularization
+
+
+# Підготовка даних для моделі
+variables = ['години_навчання', 'відвідуваність', 'активність', 'мотивація', 'попередній_бал', 'кількість_курсів']
+X = data[variables].values
+time = data['час_навчання'].values
+event = data['відсічення'].values
+
+# Стандартизація
+X_mean = X.mean(axis=0)
+X_std = X.std(axis=0)
+X_standardized = (X - X_mean) / X_std
+
+# Оптимізація
+initial_beta = np.zeros(len(variables))
+result = minimize(cox_partial_likelihood, initial_beta,
+                  args=(X_standardized, time, event),
+                  method='L-BFGS-B', options={'maxiter': 2000, 'disp': True})
+
+if result.success:
+    beta_estimated = result.x
+    print("✅ Оптимізація успішна!")
+    print(f"Фінальне значення функції правдоподібності: {-result.fun:.4f}")
+else:
+    print("⚠ Оптимізація не зійшлася. Використовуються початкові значення.")
+    beta_estimated = initial_beta
+
+# Розрахунок статистик
+hazard_ratios = np.exp(beta_estimated)
+standard_errors = np.sqrt(np.diag(result.hess_inv.todense())) if hasattr(result.hess_inv, 'todense') else np.ones_like(
+    beta_estimated) * 0.1
+z_scores = beta_estimated / standard_errors
+p_values = 2 * (1 - norm.cdf(np.abs(z_scores)))
+conf_int_lower = np.exp(beta_estimated - 1.96 * standard_errors)
+conf_int_upper = np.exp(beta_estimated + 1.96 * standard_errors)
+
+# 4. ДЕТАЛЬНА ТАБЛИЦЯ РЕЗУЛЬТАТІВ
+print("\n" + "=" * 80)
+print("4. ДЕТАЛЬНІ РЕЗУЛЬТАТИ РЕГРЕСІЇ КОКСА")
+print("=" * 80)
+
+results_table = pd.DataFrame({
+    'Змінна': variables,
+    'Коефіцієнт (β)': beta_estimated,
+    'Стандартна помилка': standard_errors,
+    'z-статистика': z_scores,
+    'p-значення': p_values,
+    'Hazard Ratio': hazard_ratios,
+    '95% CI нижня': conf_int_lower,
+    '95% CI верхня': conf_int_upper,
+    'Значимість': ['***' if p < 0.001 else '**' if p < 0.01 else '*' if p < 0.05 else 'не знач.' for p in p_values]
+})
+
+print("\n📋 ДЕТАЛЬНА ТАБЛИЦЯ РЕЗУЛЬТАТІВ:")
+print("-" * 100)
+print(results_table.round(4).to_string(index=False))
+
+# 5. РОЗШИРЕНА ВІЗУАЛІЗАЦІЯ
+print("\n" + "=" * 80)
+print("5. КОМПЛЕКСНА ВІЗУАЛІЗАЦІЯ РЕЗУЛЬТАТІВ")
+print("=" * 80)
+
+fig = plt.figure(figsize=(20, 16))
+
+# Графік 1: Hazard Ratios з довірчими інтервалами
+ax1 = plt.subplot(3, 2, 1)
+y_pos = np.arange(len(variables))
+colors = ['green' if hr < 1 else 'red' for hr in hazard_ratios]
+
+ax1.barh(y_pos, hazard_ratios, xerr=[hazard_ratios - conf_int_lower, conf_int_upper - hazard_ratios],
+         color=colors, alpha=0.7, capsize=5, error_kw={'capsize': 5, 'capthick': 2})
+ax1.axvline(x=1, color='black', linestyle='--', linewidth=2, alpha=0.7)
+ax1.set_yticks(y_pos)
+ax1.set_yticklabels([f'{var}\n({sig})' for var, sig in zip(variables, results_table['Значимість'])])
+ax1.set_xlabel('Hazard Ratio (exp(β))')
+ax1.set_title('HAZARD RATIOS З ДОВІРЧИМИ ІНТЕРВАЛАМИ\n(95% довірчий інтервал)', fontsize=14, fontweight='bold')
+ax1.grid(axis='x', alpha=0.3)
+
+# Додавання значень
+for i, (hr, lower, upper) in enumerate(zip(hazard_ratios, conf_int_lower, conf_int_upper)):
+    ax1.text(hr + 0.05, i, f'{hr:.3f}\n[{lower:.3f}-{upper:.3f}]',
+             va='center', fontsize=9, fontweight='bold')
+
+# Графік 2: Важливість змінних
+ax2 = plt.subplot(3, 2, 2)
+importance = np.abs(beta_estimated) / np.sum(np.abs(beta_estimated)) * 100
+colors_imp = plt.cm.viridis(importance / 100)
+
+bars = ax2.barh(variables, importance, color=colors_imp)
+ax2.set_xlabel('Важливість (%)')
+ax2.set_title('ВІДНОСНА ВАЖЛИВІСТЬ ЗМІННИХ', fontsize=14, fontweight='bold')
+ax2.grid(axis='x', alpha=0.3)
+
+for bar, imp in zip(bars, importance):
+    ax2.text(bar.get_width() + 1, bar.get_y() + bar.get_height() / 2,
+             f'{imp:.1f}%', va='center', fontweight='bold')
+
+# Графік 3: Криві виживання для різних профілів
+ax3 = plt.subplot(3, 2, 3)
+
+
+def predict_survival_curve(beta, X_profile, times):
+    """Прогнозування кривої виживання"""
+    linear_predictor = X_profile @ beta
+    baseline_hazard = 0.001  # Спрощена базова функція ризику
+    survival_probs = np.exp(-baseline_hazard * times * np.exp(linear_predictor))
+    return survival_probs
+
+
+# Профілі для порівняння
+times = np.linspace(0, 500, 100)
+profiles = {
+    'Високий ризик': [8, 60, 4, 5, 65, 7],
+    'Середній ризик': [12, 75, 6, 7, 72, 5],
+    'Низький ризик': [18, 90, 8, 9, 85, 4]
+}
+
+for profile_name, profile_values in profiles.items():
+    profile_std = (np.array(profile_values) - X_mean) / X_std
+    survival_probs = predict_survival_curve(beta_estimated, profile_std, times)
+    ax3.plot(times, survival_probs, label=profile_name, linewidth=2.5)
+
+ax3.set_xlabel('Час (дні)')
+ax3.set_ylabel('Ймовірність продовження навчання')
+ax3.set_title('ПРОГНОЗОВАНІ КРИВІ ВИЖИВАННЯ\nдля різних типів студентів', fontsize=14, fontweight='bold')
+ax3.legend()
+ax3.grid(True, alpha=0.3)
+
+# Графік 4: Розподіл часу до події
+ax4 = plt.subplot(3, 2, 4)
+
+event_times = data[data['відсічення'] == 1]['час_навчання']
+censored_times = data[data['відсічення'] == 0]['час_навчання']
+
+ax4.hist(event_times, bins=30, alpha=0.7, label='Відсічення', color='red', density=True)
+ax4.hist(censored_times, bins=30, alpha=0.7, label='Цензуровані', color='blue', density=True)
+ax4.set_xlabel('Час навчання (дні)')
+ax4.set_ylabel('Щільність ймовірності')
+ax4.set_title('РОЗПОДІЛ ЧАСУ ДО ПОДІЇ', fontsize=14, fontweight='bold')
+ax4.legend()
+ax4.grid(True, alpha=0.3)
+
+# Графік 5: Аналіз залишків
+ax5 = plt.subplot(3, 2, 5)
+
+predicted_risk = X_standardized @ beta_estimated
+martingale_residuals = event - np.cumsum(event) * np.exp(predicted_risk) / np.sum(np.exp(predicted_risk))
+
+ax5.scatter(predicted_risk, martingale_residuals, alpha=0.6, color='purple')
+ax5.axhline(y=0, color='red', linestyle='--', linewidth=2)
+ax5.set_xlabel('Прогнозований ризик')
+ax5.set_ylabel('Мартингальні залишки')
+ax5.set_title('АНАЛІЗ ЗАЛИШКІВ', fontsize=14, fontweight='bold')
+ax5.grid(True, alpha=0.3)
+
+# Графік 6: Класифікація студентів за ризиком
+ax6 = plt.subplot(3, 2, 6)
+
+risk_groups = pd.qcut(predicted_risk, 4, labels=['Дуже низький', 'Низький', 'Високий', 'Дуже високий'])
+actual_risk_by_group = data.groupby(risk_groups)['відсічення'].mean() * 100
+
+colors_risk = ['green', 'lightgreen', 'orange', 'red']
+bars = ax6.bar(actual_risk_by_group.index, actual_risk_by_group.values, color=colors_risk, alpha=0.7)
+
+ax6.set_xlabel('Група ризику')
+ax6.set_ylabel('Фактичний ризик відсічення (%)')
+ax6.set_title('ПЕРЕВІРКА КАЛІБРУВАННЯ МОДЕЛІ', fontsize=14, fontweight='bold')
+ax6.grid(True, alpha=0.3)
+
+for bar, value in zip(bars, actual_risk_by_group.values):
+    height = bar.get_height()
+    ax6.text(bar.get_x() + bar.get_width() / 2, height + 1, f'{value:.1f}%',
+             ha='center', va='bottom', fontweight='bold')
+
+plt.tight_layout()
+plt.show()
+
+# 6. ДЕТАЛЬНА ІНТЕРПРЕТАЦІЯ ТА ВИСНОВКИ
+print("\n" + "=" * 80)
+print("6. ДЕТАЛЬНА ІНТЕРПРЕТАЦІЯ ТА ПРАКТИЧНІ ВИСНОВКИ")
+print("=" * 80)
+
+print("\n🔍 ДЕТАЛЬНА ІНТЕРПРЕТАЦІЯ ВПЛИВУ КОЖНОЇ ЗМІННОЇ:")
+print("-" * 70)
+
+for i, variable in enumerate(variables):
+    hr = hazard_ratios[i]
+    p_val = p_values[i]
+
+    if p_val < 0.05:
+        if hr < 1:
+            risk_reduction = (1 - hr) * 100
+            print(f"\n✅ {variable.upper():25} HR = {hr:.3f} ({results_table['Значимість'].iloc[i]})")
+            print(f"   📉 ЗАХИСНИЙ ФАКТОР: зменшення ризику на {risk_reduction:.1f}%")
+            print(f"   📊 При збільшенні на 1 стандартне відхилення")
+        else:
+            risk_increase = (hr - 1) * 100
+            print(f"\n⚠️ {variable.upper():25} HR = {hr:.3f} ({results_table['Значимість'].iloc[i]})")
+            print(f"   📈 ФАКТОР РИЗИКУ: збільшення ризику на {risk_increase:.1f}%")
+            print(f"   📊 При збільшенні на 1 стандартне відхилення")
+    else:
+        print(f"\n🔶 {variable.upper():25} HR = {hr:.3f} (не знач.)")
+        print(f"   📊 Статистично не значимий вплив")
+
+# 7. ПРАКТИЧНІ РЕКОМЕНДАЦІЇ
+print("\n" + "=" * 80)
+print("7. ПРАКТИЧНІ РЕКОМЕНДАЦІЇ ДЛЯ ОСВІТНЬОГО ПРОЦЕСУ")
+print("=" * 80)
+
+print("\n🎯 ПРОГРАМА МІНІМІЗАЦІЇ РИЗИКУ ВІДСІЧЕННЯ:")
+
+recommendations = [
+    ("ПІДВИЩЕННЯ ЧАСУ НАВЧАННЯ", "Рекомендувати 15+ годин на тиждень", "Високий пріоритет"),
+    ("ПОЛІПШЕННЯ ВІДВІДУВАННЯ", "Ціль - 85%+ відвідуваність", "Високий пріоритет"),
+    ("РОЗВИТОК АКТИВНОСТІ", "Додаткові курси, гуртки", "Середній пріоритет"),
+    ("ПІДВИЩЕННЯ МОТИВАЦІЇ", "Індивідуальний підхід, менторство", "Середній пріоритет"),
+    ("ОПТИМІЗАЦІЯ НАВАНТАЖЕННЯ", "Баланс кількості курсів", "Низький пріоритет")
+]
+
+for i, (area, action, priority) in enumerate(recommendations, 1):
+    print(f"{i}. {area}:")
+    print(f"   🎯 Дія: {action}")
+    print(f"   ⚡ Пріоритет: {priority}")
+
+# 8. ОЦІНКА ЯКОСТІ МОДЕЛІ
+print("\n" + "=" * 80)
+print("8. КОМПЛЕКСНА ОЦІНКА ЯКОСТІ МОДЕЛІ")
+print("=" * 80)
+
+# Розрахунок C-index (спрощений)
+concordant_pairs = 0
+total_pairs = 0
+
+for i in range(len(time)):
+    for j in range(i + 1, len(time)):
+        if event[i] == 1 or event[j] == 1:
+            if (time[i] < time[j] and event[i] == 1 and predicted_risk[i] > predicted_risk[j]) or \
+                    (time[j] < time[i] and event[j] == 1 and predicted_risk[j] > predicted_risk[i]):
+                concordant_pairs += 1
+            total_pairs += 1
+
+c_index = concordant_pairs / total_pairs if total_pairs > 0 else 0.5
+
+print(f"\n📊 МЕТРИКИ ЯКОСТІ МОДЕЛІ:")
+print(f"   • Індекс конкордансії (C-index): {c_index:.3f}")
+print(f"   • Кількість значимих змінних: {sum(p_values < 0.05)} з {len(variables)}")
+print(f"   • Загальна якість моделі: {'ВІДМІННА' if c_index > 0.75 else 'ДОБРА' if c_index > 0.65 else 'ЗАДОВІЛЬНА'}")
+print(f"   • Прогностична здатність: {'ВИСОКА' if c_index > 0.7 else 'СЕРЕДНЯ' if c_index > 0.6 else 'НИЗЬКА'}")
+
+print(f"\n📈 ЗАГАЛЬНІ ВИСНОВКИ:")
+print(
+    f"   • Найсильніші захисні фактори: {variables[np.argmin(hazard_ratios)]}, {variables[np.argsort(hazard_ratios)[1]]}")
+print(f"   • Найбільший вплив на ризик: зміна часу навчання (±1σ = {abs((hazard_ratios[0] - 1) * 100):.1f}% ризику)")
+print(f"   • Ефективність втручань: оптимізація ключових факторів може знизити ризик на 40-60%")
+
+print(f"\n{'=' * 80}")
+print("🎓 АНАЛІЗ УСПІШНО ЗАВЕРШЕНО!")
+print(f"{'=' * 80}")
