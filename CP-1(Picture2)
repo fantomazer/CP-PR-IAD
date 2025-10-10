@@ -1,0 +1,53 @@
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+import numpy as np
+
+
+# Створення даних (додайте цю частину)
+np.random.seed(42)
+size = 100
+
+
+hours = np.random.normal(5, 1.5, size)
+attendance = np.clip(hours * 8 + np.random.normal(30, 10, size), 0, 128)
+exam = np.clip(hours * 7 + attendance * 0.3 + np.random.normal(0, 8, size), 0, 100)
+satisfaction = np.clip(exam * 0.1 + np.random.normal(5, 2, size), 0, 10)
+add_courses = np.random.normal(10, 5, size)
+add_courses = np.clip(add_courses, 0, 25)
+
+
+df = pd.DataFrame({
+   'study_hours': hours,
+   'attendance_rate': attendance,
+   'exam_score': exam,
+   'satisfaction': satisfaction,
+   'add_courses': add_courses
+})
+
+
+# Розрахунок кореляційної матриці
+corr_matrix = df.corr()
+
+
+# Створення матриці діаграм розсіювання
+g = sns.PairGrid(df)
+g.map_upper(sns.scatterplot, s=15, alpha=0.7)
+g.map_lower(sns.kdeplot, cmap='Blues_d')
+g.map_diag(plt.hist, color='steelblue', edgecolor='black', alpha=0.7)
+
+
+# Додаємо кореляційні коефіцієнти
+for i in range(len(df.columns)):
+   for j in range(len(df.columns)):
+       if i < j:
+           corr_coef = corr_matrix.iloc[i, j]
+           ax = g.axes[i, j]
+           ax.annotate(f'r = {corr_coef:.2f}', xy=(0.05, 0.9),
+                      xycoords=ax.transAxes, fontsize=9,
+                      bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="gray", alpha=0.8))
+
+
+plt.suptitle('Матриця діаграм розсіювання та розподілів', y=1.02, fontsize=16)
+plt.tight_layout()
+plt.show()
