@@ -1,0 +1,324 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+from scipy import stats
+from scipy.stats import norm
+
+print("АНАЛІЗ ЧАСОВИХ РЯДІВ УСПІШНОСТІ СТУДЕНТІВ")
+print("=" * 60)
+
+# Задача 1
+print("\nЗАДАЧА 1 - АНАЛІЗ ЧАСОВОГО РЯДУ УСПІШНОСТІ")
+print("=" * 50)
+
+# Дані часового ряду
+data = np.array([1.6, 0.8, 1.2, 0.5, 0.9, 1.1, 1.1, 0.6, 1.5, 0.8, 0.9, 1.2, 0.5, 1.3, 0.8, 1.2])
+n = len(data)
+print(f"Часовий ряд успішності: {data}")
+print(f"Кількість спостережень: {n}")
+
+# Розширений статистичний аналіз
+mean_val = np.mean(data)
+std_val = np.std(data, ddof=1)  # вибіркове стандартне відхилення
+min_val = np.min(data)
+max_val = np.max(data)
+median_val = np.median(data)
+
+print(f"\nРОЗШИРЕНІ СТАТИСТИЧНІ ХАРАКТЕРИСТИКИ:")
+print(f"Середнє значення: {mean_val:.4f}")
+print(f"Медіана: {median_val:.4f}")
+print(f"Стандартне відхилення: {std_val:.4f}")
+print(f"Мінімум: {min_val:.4f}")
+print(f"Максимум: {max_val:.4f}")
+print(f"Коефіцієнт варіації: {(std_val / mean_val * 100):.2f}%")
+
+# Створення графіків
+fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+
+# а) Графік часового ряду
+axes[0, 0].plot(range(1, n + 1), data, 'bo-', linewidth=2, markersize=6, label='Часовий ряд')
+axes[0, 0].axhline(mean_val, color='red', linestyle='--', alpha=0.7, label=f'Середнє ({mean_val:.3f})')
+axes[0, 0].set_xlabel('Номер спостереження (t)')
+axes[0, 0].set_ylabel('Рівень успішності')
+axes[0, 0].set_title('а) Графік часового ряду успішності студентів')
+axes[0, 0].grid(True, alpha=0.3)
+axes[0, 0].set_xticks(range(1, n + 1))
+axes[0, 0].legend()
+
+# б) Визначення коефіцієнта автокореляції графічно
+# Розрахунок середнього
+print(f"\nб) ГРАФІЧНИЙ АНАЛІЗ АВТОКОРЕЛЯЦІЇ:")
+
+# в) Графік залежності y(t+1) від y(t)
+y_t = data[:-1]  # y(t)
+y_t1 = data[1:]  # y(t+1)
+
+# Квадранти для візуалізації кореляції
+axes[0, 1].axhline(mean_val, color='gray', linestyle='-', alpha=0.5)
+axes[0, 1].axvline(mean_val, color='gray', linestyle='-', alpha=0.5)
+axes[0, 1].scatter(y_t, y_t1, color='red', s=60, alpha=0.7)
+
+# Додаємо лінію тренду
+z = np.polyfit(y_t, y_t1, 1)
+p = np.poly1d(z)
+x_fit = np.linspace(min(y_t), max(y_t), 100)
+axes[0, 1].plot(x_fit, p(x_fit), "r--", alpha=0.8, linewidth=2,
+                label=f'Лінія тренду: y = {z[0]:.3f}x + {z[1]:.3f}')
+
+axes[0, 1].set_xlabel('y(t) - поточний рівень')
+axes[0, 1].set_ylabel('y(t+1) - наступний рівень')
+axes[0, 1].set_title('в) Діаграма розсіювання: y(t+1) vs y(t)')
+axes[0, 1].grid(True, alpha=0.3)
+axes[0, 1].legend()
+
+# Наближена оцінка коефіцієнта автокореляції з графіка
+approx_corr = z[0] * (np.std(y_t1, ddof=1) / np.std(y_t, ddof=1))
+print(f"Наближена оцінка коефіцієнта автокореляції з графіка: {approx_corr:.4f}")
+
+
+# Точний розрахунок коефіцієнта автокореляції
+def autocorrelation_coeff(data, lag=1):
+    """Розрахунок коефіцієнта автокореляції з заданим лагом"""
+    n = len(data)
+    mean_val = np.mean(data)
+
+    numerator = 0
+    denominator = 0
+
+    for t in range(lag, n):
+        numerator += (data[t] - mean_val) * (data[t - lag] - mean_val)
+
+    for t in range(n):
+        denominator += (data[t] - mean_val) ** 2
+
+    return numerator / denominator
+
+
+# Коефіцієнт автокореляції першого порядку
+r1 = autocorrelation_coeff(data, lag=1)
+
+
+# Перевірка значущості автокореляції
+def autocorrelation_significance(r, n, alpha=0.05):
+    """Перевірка статистичної значущості автокореляції"""
+    # Стандартна помилка
+    se = 1 / np.sqrt(n)
+
+    # Z-статистика
+    z_score = abs(r) / se
+
+    # Критичне значення
+    z_critical = norm.ppf(1 - alpha / 2)
+
+    # P-значення
+    p_value = 2 * (1 - norm.cdf(z_score))
+
+    return se, z_score, z_critical, p_value
+
+
+se, z_score, z_critical, p_value = autocorrelation_significance(r1, n)
+
+print(f"\nТОЧНИЙ РОЗРАХУНОК АВТОКОРЕЛЯЦІЇ:")
+print(f"Коефіцієнт автокореляції 1-го порядку: {r1:.4f}")
+print(f"Стандартна помилка: {se:.4f}")
+print(f"Z-статистика: {z_score:.4f}")
+print(f"Критичне значення (a=0.05): {z_critical:.4f}")
+print(f"P-значення: {p_value:.4f}")
+
+if p_value < 0.05:
+    print("+ Автокореляція є СТАТИСТИЧНО ЗНАЧУЩОЮ (p < 0.05)")
+else:
+    print("- Автокореляція НЕ є статистично значущою")
+
+# Додатковий аналіз автокореляції
+lags = range(1, 6)
+autocorrs = [autocorrelation_coeff(data, lag) for lag in lags]
+
+# Функція автокореляції (ACF)
+bars = axes[1, 0].bar(lags, autocorrs, color='green', alpha=0.7)
+axes[1, 0].axhline(0, color='black', linewidth=0.8)
+
+# Додаємо межі значущості
+axes[1, 0].axhline(1.96 / np.sqrt(n), color='red', linestyle='--', alpha=0.7,
+                   label='Межа значущості (95%)')
+axes[1, 0].axhline(-1.96 / np.sqrt(n), color='red', linestyle='--', alpha=0.7)
+
+# Підписуємо значення на стовпцях
+for i, (lag, corr) in enumerate(zip(lags, autocorrs)):
+    axes[1, 0].text(lag, corr + 0.02 * (1 if corr > 0 else -1), f'{corr:.3f}',
+                    ha='center', va='bottom' if corr > 0 else 'top', fontsize=9)
+
+axes[1, 0].set_xlabel('Лаг (lag)')
+axes[1, 0].set_ylabel('Коефіцієнт автокореляції')
+axes[1, 0].set_title('г) Функція автокореляції (ACF)')
+axes[1, 0].grid(True, alpha=0.3)
+axes[1, 0].set_xticks(lags)
+axes[1, 0].legend()
+
+# Статистичні характеристики
+stats_text = f'''СТАТИСТИЧНІ ХАРАКТЕРИСТИКИ:
+
+Середнє: {mean_val:.3f}
+Медіана: {median_val:.3f}
+Стандартне відхилення: {std_val:.3f}
+Мінімум: {min_val:.3f}
+Максимум: {max_val:.3f}
+Коеф. варіації: {std_val / mean_val * 100:.1f}%
+
+АВТОКОРЕЛЯЦІЯ 1-ГО ПОРЯДКУ:
+Точне значення: {r1:.4f}
+Наближена оцінка: {approx_corr:.4f}
+P-значення: {p_value:.4f}
+{'+ Значуща' if p_value < 0.05 else '- Незначуща'}'''
+
+axes[1, 1].text(0.05, 0.95, stats_text, fontsize=11, verticalalignment='top',
+                bbox=dict(boxstyle="round,pad=0.5", facecolor="lightblue", alpha=0.5))
+axes[1, 1].set_title('д) Статистичний аналіз')
+axes[1, 1].axis('off')
+
+plt.tight_layout()
+plt.show()
+
+# Задача 2
+print("\n" + "=" * 60)
+print("ЗАДАЧА 2 - МОДЕЛЬ ВИПАДКОВОГО БЛУКАННЯ З ТРЕНДОМ")
+print("=" * 60)
+
+
+class RandomWalkWithTrend:
+    def __init__(self, initial_value=0, trend=0, volatility=1):
+        self.initial_value = initial_value
+        self.trend = trend  # постійний тренд
+        self.volatility = volatility  # волатильність
+
+    def generate_forecast(self, current_value, tau):
+        """Генерація прогнозу на tau кроків вперед"""
+        forecast = current_value + self.trend * tau
+        return forecast
+
+    def forecast_error(self, tau):
+        """Розрахунок прогнозної помилки"""
+        error = self.volatility * np.sqrt(tau)
+        return error
+
+    def mean_squared_error(self, tau):
+        """Середня квадратична помилка прогнозу"""
+        mse = (self.volatility ** 2) * tau
+        return mse
+
+    def confidence_interval(self, current_value, tau, confidence=0.95):
+        """Довірчий інтервал прогнозу"""
+        forecast = self.generate_forecast(current_value, tau)
+        error = self.forecast_error(tau)
+        z_value = norm.ppf(1 - (1 - confidence) / 2)
+        margin = z_value * error
+
+        return {
+            'forecast': forecast,
+            'lower': forecast - margin,
+            'upper': forecast + margin,
+            'margin': margin
+        }
+
+
+# Оцінка параметрів з даних
+current_success = data[-1]
+trend_estimate = np.mean(np.diff(data))
+volatility_estimate = np.std(np.diff(data), ddof=1)
+
+print(f"\nОЦІНКА ПАРАМЕТРІВ МОДЕЛІ:")
+print(f"Поточний рівень успішності: {current_success:.4f}")
+print(f"Оцінка тренду: {trend_estimate:.4f}")
+print(f"Оцінка волатильності: {volatility_estimate:.4f}")
+
+# Створення моделі
+model = RandomWalkWithTrend(
+    initial_value=current_success,
+    trend=trend_estimate,
+    volatility=volatility_estimate
+)
+
+# Прогноз на різні періоди
+forecast_periods = [1, 2, 3, 4, 5]
+
+print(f"\n{'Період (τ)':<12} {'Прогноз':<10} {'Помилка':<12} {'СКП':<12} {'Дов. інтервал':<20}")
+print("-" * 70)
+
+forecasts_data = []
+
+for tau in forecast_periods:
+    forecast = model.generate_forecast(current_success, tau)
+    error = model.forecast_error(tau)
+    mse = model.mean_squared_error(tau)
+    ci = model.confidence_interval(current_success, tau)
+
+    forecasts_data.append({
+        'tau': tau,
+        'forecast': forecast,
+        'error': error,
+        'mse': mse,
+        'ci_lower': ci['lower'],
+        'ci_upper': ci['upper']
+    })
+
+    print(f"{tau:<12} {forecast:<10.3f} {error:<12.3f} {mse:<12.3f} [{ci['lower']:.3f}, {ci['upper']:.3f}]")
+
+# Візуалізація прогнозів
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+
+# Графік прогнозів
+historical_time = list(range(1, n + 1))
+forecast_time = list(range(n, n + max(forecast_periods) + 1))
+
+ax1.plot(historical_time, data, 'bo-', label='Історичні дані', linewidth=2, markersize=6)
+ax1.axhline(mean_val, color='gray', linestyle='--', alpha=0.7, label=f'Загальне середнє ({mean_val:.3f})')
+
+# Прогнози з довірчими інтервалами
+for fd in forecasts_data:
+    tau = fd['tau']
+    forecast_point = n + tau
+    ax1.plot([n, forecast_point], [data[-1], fd['forecast']], 'ro--', alpha=0.7, linewidth=1)
+    ax1.errorbar(forecast_point, fd['forecast'], yerr=fd['error'],
+                 fmt='ro', capsize=5, capthick=2, label=f'Прогноз τ={tau}' if tau == 1 else "")
+
+ax1.set_xlabel('Час (періоди)')
+ax1.set_ylabel('Рівень успішності')
+ax1.set_title('Прогнозування успішності студентів\n(Модель випадкового блукання з трендом)')
+ax1.legend()
+ax1.grid(True, alpha=0.3)
+
+# Графік помилок прогнозу
+taus = [fd['tau'] for fd in forecasts_data]
+mses = [fd['mse'] for fd in forecasts_data]
+errors = [fd['error'] for fd in forecasts_data]
+
+ax2.plot(taus, mses, 's-', color='orange', linewidth=2, markersize=8, label='СКП (MSE)')
+ax2.plot(taus, errors, '^-', color='red', linewidth=2, markersize=8, label='Середня помилка')
+
+ax2.set_xlabel('Період прогнозу (τ)')
+ax2.set_ylabel('Помилка прогнозу')
+ax2.set_title('Залежність помилки прогнозу від горизонту')
+ax2.grid(True, alpha=0.3)
+ax2.set_xticks(taus)
+ax2.legend()
+
+# Додаємо значення на точках
+for i, (tau, mse, err) in enumerate(zip(taus, mses, errors)):
+    ax2.text(tau, mse + 0.001, f'{mse:.3f}', ha='center', va='bottom')
+    ax2.text(tau, err + 0.001, f'{err:.3f}', ha='center', va='bottom')
+
+plt.tight_layout()
+plt.show()
+
+print(f"\nПРАКТИЧНІ ВИСНОВКИ ДЛЯ УСПІШНОСТІ СТУДЕНТІВ:")
+print(f"Поточний рівень: {current_success:.3f}")
+print(f"Середня зміна за період: {trend_estimate:.4f}")
+print(f"Волатильність успішності: {volatility_estimate:.4f}")
+print(f"Найкращий прогноз на 1 період: {forecasts_data[0]['forecast']:.3f} +- {forecasts_data[0]['error']:.3f}")
+
+print(f"\nАвтокореляція 1-го порядку: {r1:.4f} ({'значуща' if p_value < 0.05 else 'незначуща'})")
+print(f"Це вказує на ефект {'повернення до середнього' if r1 < 0 else 'позитивної інерції'}")
+
+print("\n" + "=" * 70)
+print("АНАЛІЗ ЧАСОВИХ РЯДІВ УСПІШНОСТІ УСПІШНО ЗАВЕРШЕНО!")
+print("=" * 70)
