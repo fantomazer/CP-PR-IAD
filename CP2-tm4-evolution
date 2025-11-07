@@ -1,0 +1,156 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+from scipy.optimize import differential_evolution
+import seaborn as sns
+
+
+class EvolutionaryMethodsAnalysis:
+    def __init__(self):
+        self.students_data = None
+        self.generate_student_data()
+        self.setup_style()
+
+    def setup_style(self):
+        """Налаштування стилю графіків"""
+        plt.rcParams['font.family'] = 'DejaVu Sans'
+        sns.set_palette("husl")
+
+    def generate_student_data(self):
+        """Генерація даних студентів"""
+        np.random.seed(42)
+        n_students = 100
+
+        self.students_data = pd.DataFrame({
+            'study_hours': np.random.normal(15, 5, n_students),
+            'attendance_rate': np.random.normal(85, 10, n_students),
+            'add_courses': np.random.normal(12, 5, n_students),
+            'satisfaction': np.random.normal(7, 2, n_students)
+        })
+
+        self.students_data['exam_score'] = (
+                0.4 * self.students_data['study_hours'] +
+                0.3 * self.students_data['attendance_rate'] +
+                0.2 * self.students_data['add_courses'] +
+                0.1 * self.students_data['satisfaction'] +
+                np.random.normal(0, 5, n_students)
+        )
+
+    def objective_function(self, params):
+        """Цільова функція для оптимізації"""
+        X = self.students_data[['study_hours', 'attendance_rate', 'add_courses', 'satisfaction']].values
+        y = self.students_data['exam_score'].values
+
+        predictions = X @ params
+        mse = np.mean((predictions - y) ** 2)
+        regularization = 0.01 * np.sum(params ** 2)
+
+        return mse + regularization
+
+    def compare_evolutionary_vs_traditional(self):
+        """Порівняння еволюційних методів з традиційними"""
+        print("\n" + "=" * 70)
+        print("🧬 ПОРІВНЯННЯ ЕВОЛЮЦІЙНИХ МЕТОДІВ З ТРАДИЦІЙНИМИ")
+        print("=" * 70)
+
+        bounds = [(-10, 10)] * 4
+
+        fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+        fig.suptitle('🧬 Порівняння еволюційних та традиційних методів оптимізації',
+                     fontsize=16, fontweight='bold')
+
+        # 1. Діаграма порівняння методів
+        methods_comparison = {
+            'Метод': ['Генетичні алгоритми', 'Диференційна еволюція', 'Роєва оптимізація',
+                      'Градієнтний спуск', 'Ньютон', 'BFGS'],
+            'Тип': ['Еволюційний', 'Еволюційний', 'Еволюційний',
+                    'Градієнтний', 'Градієнтний', 'Градієнтний'],
+            'Глобальний пошук': ['Так', 'Так', 'Так', 'Ні', 'Ні', 'Ні'],
+            'Похідні': ['Не потрібні', 'Не потрібні', 'Не потрібні', 'Потрібні', 'Потрібні', 'Потрібні']
+        }
+
+        df_comparison = pd.DataFrame(methods_comparison)
+
+        # Візуалізація порівняння
+        sns.heatmap(pd.get_dummies(df_comparison.set_index('Метод')),
+                    ax=axes[0, 0], cmap=['lightcoral', 'lightgreen'],
+                    cbar_kws={'label': 'Так/Ні'})
+        axes[0, 0].set_title('Характеристики методів оптимізації')
+
+        # 2. Еволюційні методи
+        evolutionary_methods = [
+            "Генетичні алгоритми (GA)",
+            "Диференційна еволюція (DE)",
+            "Еволюційні стратегії (ES)",
+            "Генетичне програмування (GP)",
+            "Роєва оптимізація (PSO)",
+            "Алгоритм мурашиних колоній (ACO)"
+        ]
+
+        axes[0, 1].axis('off')
+        axes[0, 1].text(0.1, 0.9, 'ЕВОЛЮЦІЙНІ МЕТОДИ ОПТИМІЗАЦІЇ',
+                        fontsize=14, fontweight='bold')
+        for i, method in enumerate(evolutionary_methods):
+            axes[0, 1].text(0.1, 0.8 - i * 0.1, method, fontsize=11)
+
+        # 3. Продуктивність методів
+        from scipy.optimize import minimize
+
+        # Диференційна еволюція
+        result_de = differential_evolution(self.objective_function, bounds,
+                                           strategy='best1bin', maxiter=50,
+                                           popsize=20, disp=False)
+
+        # Градієнтний метод
+        result_bfgs = minimize(self.objective_function, np.zeros(4),
+                               method='BFGS', options={'disp': False})
+
+        methods_performance = {
+            'Метод': ['Диференційна еволюція', 'BFGS'],
+            'Функція втрат': [result_de.fun, result_bfgs.fun],
+            'Оцінка': ['Глобальний пошук', 'Локальний пошук']
+        }
+
+        df_perf = pd.DataFrame(methods_performance)
+        bars = axes[1, 0].bar(df_perf['Метод'], df_perf['Функція втрат'],
+                              color=['lightblue', 'lightcoral'])
+        axes[1, 0].set_ylabel('Функція втрат')
+        axes[1, 0].set_title('Порівняння продуктивності методів')
+
+        for bar, value in zip(bars, df_perf['Функція втрат']):
+            axes[1, 0].text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.001,
+                            f'{value:.4f}', ha='center', va='bottom')
+
+        # 4. Переваги та недоліки
+        advantages = [
+            "+ Глобальний пошук оптимуму",
+            "+ Не вимагає похідних",
+            "+ Стійкість до шуму",
+            "+ Працює з недиференційованими функціями",
+            "- Повільна збіжність",
+            "- Велика кількість обчислень",
+            "- Складність налаштування параметрів"
+        ]
+
+        axes[1, 1].axis('off')
+        axes[1, 1].text(0.1, 0.9, 'ПЕРЕВАГИ ТА НЕДОЛІКИ ЕВОЛЮЦІЙНИХ МЕТОДІВ',
+                        fontsize=12, fontweight='bold')
+        for i, item in enumerate(advantages):
+            color = 'green' if '+' in item else 'red'
+            axes[1, 1].text(0.1, 0.8 - i * 0.08, item, fontsize=10, color=color)
+
+        plt.tight_layout()
+        plt.show()
+
+        print("\nРЕЗУЛЬТАТИ ПОРІВНЯННЯ:")
+        print(f"Диференційна еволюція: {result_de.fun:.6f}")
+        print(f"BFGS: {result_bfgs.fun:.6f}")
+
+
+# Запуск аналізу
+if __name__ == "__main__":
+    print("МОНІТОРИНГ НАВЧАЛЬНИХ ДОСЯГНЕНЬ СТУДЕНТІВ")
+    print("АНАЛІЗ ЕВОЛЮЦІЙНИМИ МЕТОДАМИ")
+
+    analysis = EvolutionaryMethodsAnalysis()
+    analysis.compare_evolutionary_vs_traditional()
