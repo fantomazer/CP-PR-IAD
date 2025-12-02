@@ -1,0 +1,112 @@
+import gzip
+import networkx as nx
+
+# ==== НАЛАШТУВАННЯ ====
+PATH_EDGES = "com-friendster.ungraph.txt.gz"
+PATH_COMM  = "com-friendster.all.cmty.txt.gz"
+OUTPUT_GEXF = "friendster_subgraph_auto.gexf"
+OUTPUT_EDGELIST = "friendster_subgraph_auto.edgelist"
+
+EDGE_READ_LIMIT = 50_000_000  # скільки рядків edge-файлу читати (для швидкості)
+COMM_READ_LIMIT = 500          # скільки спільнот перевіряти (для швидкості)
+MIN_NODES = 100                # мінімальна кількість вузлів у перетині для побудови графа
+
+# ==== 1. Скануємо edge-файл і збираємо унікальні ID ====
+print("Читаю перші", EDGE_READ_LIMIT, "рядків edge-файлу...")
+
+present_nodes = set()
+with gzip.open(PATH_EDGES, "rt") as f:
+    for i, line in enumerate(f):
+        if i >= EDGE_READ_LIMIT:
+            break
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        try:
+            a, b = int(parts[0]), int(parts[1])
+        except:
+            continue
+        present_nodes.add(a)
+        present_nodes.add(b)
+
+print("Унікальних вузлів у перших рядках edge-файлу:", len(present_nodes))
+
+# ==== 2. Шукаємо спільноту з максимальним перетином ====
+print("Шукаю спільноту з максимальним перетином...")
+
+best_comm = set()
+best_size = 0
+
+with gzip.open(PATH_COMM, "rt") as f:
+    for idx, line in enumerate(f):
+        if idx >= COMM_READ_LIMIT:
+            break
+        comm = set(map(int, line.strip().split()))
+        inter = comm.intersection(present_nodes)
+        if len(inter) > best_size:
+            best_size = len(inter)
+            best_comm = inter
+
+print("Найкращий перетин вузлів:", best_size)
+
+if best_size < MIN_NODES:
+    print("Замало вузлів у перетині. Збільшіть EDGE_READ_LIMIT або COMM_READ_LIMIT.")
+    exit(1)
+
+# ==== 3. Будуємо підграф ====
+print("Будую підграф за знайденими вузлами...")
+
+G = nx.Graph()
+target_nodes = best_comm
+
+with gzip.open(PATH_EDGES, "rt") as f:
+    for i, line in enumerate(f):
+        if i >= EDGE_READ_LIMIT:
+            break
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        try:
+            a, b = int(parts[0]), int(parts[1])
+        except:
+            continue
+        if a in target_nodes and b in target_nodes:
+            G.add_edge(a, b)
+
+print("Підграф готовий")
+
+# ==== 4. Розраховуємо метрики ====
+n = G.number_of_nodes()
+m = G.number_of_edges()
+degrees = dict(G.degree())
+avg_deg = sum(degrees.values()) / n if n > 0 else 0
+max_deg = max(degrees.values()) if n > 0 else 0
+density = nx.density(G)
+components = list(nx.connected_components(G))
+largest_cc = max((len(c) for c in components), default=0)
+clustering = nx.average_clustering(G)
+triangles = sum(nx.triangles(G).values()) // 3
+
+print("\n=== Метрики підграфа ===")
+print("Вузли:", n)
+print("Ребра:", m)
+print("Середній ступінь:", avg_deg)
+print("Макс ступінь:", max_deg)
+print("Щільність:", density)
+print("Компоненти зв'язності:", len(components))
+print("Найбільша компонента:", largest_cc)
+print("Середня кластеризація:", clustering)
+print("Трикутники:", triangles)
+
+# ==== 5. Зберігаємо граф ====
+nx.write_gexf(G, OUTPUT_GEXF)
+nx.write_edgelist(G, OUTPUT_EDGELIST, data=False)
+print("\nФайли збережено:")
+print("GEXF:", OUTPUT_GEXF)
+print("Edgelist:", OUTPUT_EDGELIST)
